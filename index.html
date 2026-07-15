@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>DINO JUMPER — Спасение Принцессы</title>
+<title>DINO RUN — Спасение Принцессы</title>
 <style>
   /* ============================================================
      РЕТРО-СТИЛЬ. Пиксельная палитра, чёткие пиксели без сглаживания.
@@ -18,34 +18,43 @@
     --sky:#7ec8ff; --panel:#2a2f4a; --panel-2:#3a4066;
   }
   *{box-sizing:border-box; margin:0; padding:0;}
-  html,body{height:100%;}
+  html,body{height:100%; width:100%;}
   body{
-    background:#12142a;
+    background:#0e1024;
     background-image:
-      radial-gradient(circle at 20% 10%, #22264a 0, #12142a 60%),
+      radial-gradient(circle at 50% 22%, #1c2144 0, #0e1024 70%),
       repeating-linear-gradient(0deg, transparent 0 3px, rgba(0,0,0,.05) 3px 4px);
-    display:flex; align-items:center; justify-content:center;
-    min-height:100%; overflow:hidden;
+    overflow:hidden;                 /* никакого скролла внутри iframe */
     font-family:'Courier New', 'Consolas', monospace;
     color:var(--paper);
     -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent;
+    touch-action:none;               /* тап = игровое действие, без прокрутки/зума */
   }
 
-  /* Обёртка держит соотношение 16:9 и масштабирует всё вместе */
+  /* Обёртка занимает всю область iframe (100% ширины × высоту 600px) */
   #wrap{
     position:relative;
-    width:min(96vw, calc(96vh * 16 / 9));
+    width:100%; height:100%;
+    overflow:hidden; background:transparent;
+    touch-action:none;
+  }
+
+  /* Игровая сцена: наибольший прямоугольник 16:9, влезающий и по ширине,
+     и по высоте окна; центрируется. vw/vh здесь берутся от размера iframe. */
+  #stage{
+    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    width:min(100vw, calc(100vh * 16 / 9));
     aspect-ratio:16/9;
-    box-shadow:0 0 0 4px #0a0b18, 0 0 0 8px #2a2f4a, 0 18px 50px rgba(0,0,0,.6);
-    border-radius:6px; overflow:hidden;
     background:#0a0b18;
+    box-shadow:0 0 0 3px #0a0b18, 0 10px 30px rgba(0,0,0,.5);
+    overflow:hidden;
   }
 
   /* Канвас с игровым миром — жёсткие пиксели */
   #game{
     position:absolute; inset:0; width:100%; height:100%;
     image-rendering:pixelated; image-rendering:crisp-edges;
-    display:block;
+    display:block; touch-action:none;
   }
 
   /* ---------- HUD ---------- */
@@ -85,10 +94,11 @@
   /* ---------- ЭКРАНЫ (старт/победа/поражение) ---------- */
   .screen{
     position:absolute; inset:0; z-index:10;
-    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    display:flex; flex-direction:column; align-items:center; justify-content:safe center;
     gap:2.2%; padding:4%;
     background:linear-gradient(180deg, rgba(12,14,34,.72), rgba(12,14,34,.86));
     text-align:center;
+    overflow-y:auto; overflow-x:hidden;   /* высокое меню прокручивается по вертикали, без гориз. скролла */
   }
   .screen.hidden{display:none;}
   .screen.translucent{background:linear-gradient(180deg, rgba(12,14,34,.15) 0 40%, rgba(12,14,34,.82) 78%);}
@@ -111,6 +121,32 @@
 
   .controls{font-size:clamp(9px,2.2vw,16px); letter-spacing:1px; color:#aeb8dd; line-height:1.7; text-transform:uppercase;}
   .controls .key{display:inline-block; background:#3a4066; color:#fff; padding:1px 8px; border-radius:4px; box-shadow:inset 0 -2px 0 rgba(0,0,0,.35); margin:0 2px;}
+  /* Инструкция для телефона на старте */
+  .how{font-size:clamp(11px,3vw,17px); line-height:1.9; text-transform:none; letter-spacing:.5px;
+       color:#cdd6f2; max-width:min(92%,440px);}
+  .how b{color:var(--mint);}
+
+  /* Кодовое слово на экране победы (копируется по тапу) */
+  .codebox{
+    cursor:pointer; user-select:none;
+    background:rgba(20,22,44,.62); border-radius:8px;
+    box-shadow:inset 0 0 0 2px var(--gold);
+    padding:2.4% 5%; margin:.4% 0;
+    display:flex; flex-direction:column; align-items:center; gap:2px;
+    transition:transform .06s;
+  }
+  .codebox:active{transform:scale(.97);}
+  .code-label{font-size:clamp(9px,2.3vw,15px); letter-spacing:2px; color:#c8d2f0; text-transform:uppercase; opacity:.9;}
+  .code-word{
+    font-size:clamp(24px,7vw,52px); font-weight:bold; letter-spacing:4px;
+    color:var(--gold); text-shadow:2px 2px 0 var(--pink-d), 4px 4px 0 rgba(0,0,0,.4);
+  }
+  .code-copied{
+    font-size:clamp(10px,2.4vw,15px); letter-spacing:2px; color:var(--mint);
+    text-transform:uppercase; opacity:0; transition:opacity .2s;
+  }
+  .codebox.copied .code-copied{opacity:1;}
+  .codebox.copied{box-shadow:inset 0 0 0 2px var(--mint);}
 
   /* Таблица рекордов */
   .hs{
@@ -159,27 +195,34 @@
 </head>
 <body>
 <div id="wrap">
-  <canvas id="game" width="480" height="270"></canvas>
+  <!-- Игровая сцена 16:9 — вписывается по ширине, центрируется по высоте -->
+  <div id="stage">
+    <canvas id="game" width="480" height="270"></canvas>
 
-  <!-- HUD -->
-  <div id="hud" class="hidden">
-    <canvas id="hearts" width="120" height="24"></canvas>
-    <div class="hud-chip"><span id="scoreVal">0</span></div>
-    <div class="hud-chip"><img id="diaIcon" alt="diamond"><span id="diaVal">0</span></div>
-    <div class="hud-spacer"></div>
-    <div class="hud-chip"><span id="phaseTag">ЛЁГКО</span></div>
-    <div class="hud-chip"><span id="timeVal">0:00</span></div>
+    <!-- HUD -->
+    <div id="hud" class="hidden">
+      <canvas id="hearts" width="120" height="24"></canvas>
+      <div class="hud-chip"><span id="scoreVal">0</span></div>
+      <div class="hud-chip"><img id="diaIcon" alt="diamond"><span id="diaVal">0</span></div>
+      <div class="hud-spacer"></div>
+      <div class="hud-chip"><span id="phaseTag">ЛЁГКО</span></div>
+      <div class="hud-chip"><span id="timeVal">0:00</span></div>
+    </div>
+
+    <div id="toast"></div>
   </div>
 
-  <div id="toast"></div>
   <button id="muteBtn">♪ ЗВУК: ВКЛ</button>
 
   <!-- СТАРТ -->
   <div id="startScreen" class="screen">
-    <div class="title"><span class="b">DINO</span> <span class="p">JUMPER</span></div>
+    <div class="title"><span class="b">DINO</span> <span class="p">RUN</span></div>
     <div class="subtitle">Пробеги к башне и спаси принцессу-Дино</div>
-    <div class="controls">
-      <span class="key">ПРОБЕЛ</span> / <span class="key">↑</span> / <span class="key">КЛИК</span> / <span class="key">ТАП</span> — прыжок · двойной прыжок в воздухе
+    <div class="controls how">
+      <b>Один тап</b> — прыжок.<br>
+      <b>Двойной тап</b> — двойной прыжок.<br>
+      Перепрыгивай врагов, собирай бобы и алмазы,<br>
+      доберись до башни и спаси принцессу!
     </div>
     <div class="hs" id="hsStart"><h3>★ Рекорды ★</h3><ol></ol></div>
     <button class="btn" id="playBtn">▶ Играть</button>
@@ -194,6 +237,12 @@
       <div>Счёт: <b id="winScore">0</b></div>
       <div>Алмазы: <b id="winDia">0</b></div>
       <div>Время: <b id="winTime">0:00</b></div>
+    </div>
+    <!-- Кодовое слово: копируется по тапу -->
+    <div class="codebox" id="codeBox">
+      <div class="code-label">Скопируйте слово</div>
+      <div class="code-word" id="codeWord">DINOWINS</div>
+      <div class="code-copied" id="codeCopied">Скопировано ✓</div>
     </div>
     <div class="hs" id="hsWin"><h3>★ Рекорды ★</h3><ol></ol></div>
     <button class="btn" id="winAgainBtn">↻ Заново</button>
@@ -216,7 +265,7 @@
 <script>
 "use strict";
 /* ================================================================
-   DINO JUMPER — пиксельный раннер-джампер (один файл, без сервера).
+   DINO RUN — пиксельный раннер-джампер (один файл, без сервера).
    Разделы кода:
      1) КОНФИГ (крутилки баланса)
      2) Пиксельная библиотека спрайтов (рисуем сетками -> запекаем)
@@ -338,110 +387,30 @@ const PR   = { W:'#f7cad6', SH:'#eab4c3', ED:'#d99cae', GO:'#f2cf5f', GD:'#c99a2
                EY:'#6d4326', LA:'#3a2415', CH:'#ef9db0', MO:'#c85f76', DR:'#f9d3dd', DS:'#eeb9c9',
                TR:'#bcd0f2', BW:'#f4a9c0', BWD:'#dd85a2', TL:'#f2a6bd', TD:'#d97f9f' };
 
-// ---- ДИНО (герой), вид спереди-3/4, бегущий. Сетка 40x46 ----
-// legFrame: 0/1 — кадры бега; jumping — поза прыжка (ноги поджаты)
-function composeDino(g, legFrame, jumping){
-  const P=DINO;
-  // Задние мятные шипы (слева, «за спиной») — выглядывают из-за головы/тела
-  const backSpikes=[[6,12,4],[4,19,4],[5,26,4],[8,33,3]];
-  for(const [x,y,r] of backSpikes){ discO(g,x,y,r,P.TL,P.TD); disc(g,x-1,y-1,r-2,'#a6e6df'); }
-  // Хвост (снизу-справа), белый с мятным кончиком
-  discO(g,32,35,5,P.W,P.ED); disc(g,34,36,2,P.TL);
-  // Верхний шип на макушке
-  ell(g,20,3,2,3,P.TD); ell(g,20,3,1,2,P.TL);
-  // Голова
-  discO(g,20,15,13,P.W,P.ED);
-  ell(g,17,23,9,5,P.SH);                 // мягкая тень снизу
-  // Тело
-  ellO(g,20,32,12,9,P.W,P.ED);
-  ell(g,20,37,9,4,P.SH);
-  // Ручки-cultышки
-  discO(g,8,31,3,P.W,P.ED); discO(g,32,31,3,P.W,P.ED);
-  // Ноги (анимация)
-  let l1x,l1y,l2x,l2y;
-  if(jumping){ l1x=14;l1y=40; l2x=25;l2y=40; }
-  else if(legFrame===0){ l1x=13;l1y=42; l2x=25;l2y=39; }
-  else { l1x=15;l1y=39; l2x=27;l2y=42; }
-  discO(g,l1x,l1y,3,P.W,P.ED); discO(g,l2x,l2y,3,P.W,P.ED);
-  // Глаза + блики
-  disc(g,14,14,3,P.EY); disc(g,26,14,3,P.EY);
-  pset(g,13,12,P.SN); pset(g,25,12,P.SN); pset(g,13,13,P.SN);
-  // Щёчки
-  disc(g,9,20,2,P.CH); disc(g,31,20,2,P.CH);
-  // Открытый ротик
-  ell(g,20,21,5,4,P.MO); ell(g,20,21,4,3,P.MI); ell(g,20,23,3,1,P.TO);
-  prect(g,17,18,7,1,'#f0eef2');          // верхняя «губа»/зубки
+// ---- ГЕРОЙ, ПРИНЦЕССА, АЛМАЗ, БОБ — встроенный пиксель-арт ----
+// Эти спрайты получены из приложенных изображений: фон удалён,
+// картинки уменьшены до чёткого пиксель-арта и упакованы (палитра +
+// строка индексов, 0 = прозрачно). Дино отзеркалён — смотрит вправо,
+// по направлению бега. Декодер разворачивает данные обратно в сетку
+// и «запекает» тем же движком, что и остальные спрайты.
+const PIX_CH="0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const SPRITE_DATA = {
+  dino:{w:40,h:48,pal:['#38494c','#7a9ca1','#62797d','#90cdd5','#a6a9aa','#e6e4e4','#fcfbfb','#ffffff','#fdfdfd','#fefefe','#f8f9fa','#c7cbcb','#000000','#fafefe','#fffefe','#fffffe'],d:'00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000122300000000000000000000000000000000000144443000000000000000000000000000000000034225555300000000000000000000000000000111567888886200000000000000000000000000242588877798885000000000000000000000000342587a888888998500000000000000000000000342b9a88888889b8710000000000000000000000342898888888888885000000000000000000000001c8988888898c36a5000000000000000000000031c8988888aabd1385000000000000000000000042c8988888a8b1d38b300000000000000000000142ca988888876ccb885000000000000000000001445efa888f86c686c6500000000000000000000013168a88888877796c10000000000000000000000012aa888888889f8600000000000000000000000342c8a888888888c00000000000000000000000034258988889b6520000000000000000000000000142589aa888b62000000000000000000000000000115898888798830000000000000000000000000343c8a66a8568a50000000000000000000000000342b98ccg8cc886000000000000000000000000313689865886c88830000000000000000000000122c89898c2bcc88830000000000000000000000cb889aa8a7c5cb98b300000000000000000000002eb7gf888888887850006600000000000000000002cbeee98a9a78e6300000000000000000000000000325268aa8622000000000000000000000000000000016877962c00000000000000000000000000000000c8888a5c000000000000000000000000000000003555520000000'},
+  princess:{w:40,h:54,pal:['#9d7282','#795466','#66384e','#d09dab','#e17a94','#925064','#f8a8b3','#fddad8','#fdc7ce','#b65874','#e7c2cb','#f9d0d5','#fdd0d2','#fed0d5','#fbd2d3','#f897ab','#fdd0d3'],d:'0000000000000000000012000000000000000000000000000000000210034530012000000000000000000000000000024106752065200000000000000000000000000000171477165600000000000000000000000000000067897775560000000000000000000000000000006544555aa600000000000000000000000000003221111116630000000000000000000000000021bc8ccccccc9422022260000000000000000002b888deffffef8e843aggga00000000000000002b8888feeeehhffdh84agggga000000000000002b8d88fheeeehdhhhdd84a55g530000000000002b8deddheeeehhhhhhhhde65gga300000000000028deehhhhhhhhhhhhhhhd84655a300000000000048deeeeeeeedhhhhhhhhde96a5200000000000028eheeffb4fdhdhhhhhhhhd846600000000000002ceee433244bedhhhhhhhhhd71362000000000002ceh9113236cedhhddffhhhd71a75200000000002ced8123b11chdhhhffhhhhd71agg53000000002b8dd81328b48dhhhhhhhhhhd7aagg530000000048dhh8461c8hhhhhhhhhhhhhd71ag5520000000348ddhe8bb7779edhhhhhhhdeb71a5a6000000003489eehd87ggg7fhhhhhhhhh97g66a60000000003488b1ceh97gg9eddhhhhhde9756600000000000064414edhfdddehdhdhhhhdh775ag60000000000031148dhhdheehhhhhhhdd8bgg6575300000000000198dddhhhdhhhhdhddhd777aa55a300000000000027eehdhhhhhdddhhf97gg66555a0000000000000021798effd9e8h777gg16a3362000000000000000033615555g11155a63a5ga00000000000000000000141455ga6aaaa1b1a55600000000000000000000447e5b16g995a7766aa3036200000000000000003211562b7997gaa5ga300575300000000000000034g19a48799g75agg7a3ag75300000000000000019999a47ge95g6aggggag5553000000000000003agg99ga5511a52a5g55a5ag53000000000000002gg55556214412a6aggg6a555300000000000001455555g64c88765657ga66a5530000000000002b9g7755g6b8df765aa55aa66660000000000002c95ge9g99648de765ga66a56a55620000000002bh7799gg996bfdd76577565ga35ga2000000002be7g899g79915d8e1a57976gga6a311320000001e979997g9997a141a55797aaa6a7499c7200003b977899gg99977aaaagg579ga5gaab999720000699g7899g79977899955g57e9g5gg64977a0000017gg77gg599977899955g5g7gg5gg117gg200002b4154g745799777ggg55gg5g7745541176000001bb444bb41577g5bbbb55gg54bb44441320000000311bbbbb444414bbbb4114bbbbbb412000000000002222221bbbb4444b44bbb122222200000000000000000031411266666114233300000000000000000000003aaaa67d9995a2000000000000000000000000006g7gg1b8fff771000000000000000000000000035gg7a489ee9752000000000000001220122222123666226622262212222222101110'},
+  diamond:{w:22,h:20,pal:['#9c7b27','#927324','#e5c248','#f3de89','#f8e7aa','#eac853','#efcd5a','#cc9e26','#deb130','#e1bd42','#b6891d'],d:'000001111111111120000000002344445466678200000002644445557366792000001644444555576667820000a44444555555666678000174444455555576667a1014444445555555576667a11a9aa9366666666a8888820199999aaaaaaaa8bbbb2000b9999a3aa3aa9bbb810000019999aaaaaabbbb100000001999a3aaa9bbb1000000000b9993aa38b8200000000000199aaaa8b10000000000000199338b800000000000000019aa8b10000000000000000ba9b1000000000000000000b8200000000000000000002100000000000000000000000000000000'},
+  bean:{w:13,h:16,pal:['#b48a20','#cba02f','#fbd044','#fdf1c7','#f9dd84','#efbc36','#fccb32'],d:'0000122210000000134456000000025445510000002544532000000255553100000023333710000002777771000000177776100000002777100000000011100000000000000000000000000000000000000000000000000000000000000000000000000000004000'}
+};
+function pixSprite(s){
+  const g=Grid(s.w,s.h);
+  for(let i=0;i<s.d.length;i++){ const v=PIX_CH.indexOf(s.d[i]); if(v>0) g.d[i]=s.pal[v-1]; }
+  return bake(g);
 }
-const dinoRun = [ sprite(40,48,g=>composeDino(g,0,false)), sprite(40,48,g=>composeDino(g,1,false)) ];
-const dinoJump = sprite(40,48,g=>composeDino(g,0,true));
-
-// ---- ПРИНЦЕССА-ДИНО. Сетка 40x54 ----
-function composePrincess(g){
-  const P=PR;
-  // Розовые шипы за спиной
-  const bs=[[7,20,4],[5,27,3],[7,33,3]];
-  for(const [x,y,r] of bs){ discO(g,x,y,r,P.TL,P.TD); }
-  // Голова
-  discO(g,20,20,12,P.W,P.ED); ell(g,17,27,8,4,P.SH);
-  // Корона (золото)
-  const cy=6;
-  prect(g,13,cy+4,15,3,P.GO); prect(g,13,cy+6,15,1,P.GD);   // ободок
-  tri(g,13,cy+4,13,cy-2,17,cy+4,P.GO);
-  tri(g,20,cy+4,20,cy-4,23,cy+4,P.GO);
-  tri(g,27,cy+4,27,cy-2,24,cy+4,P.GO);
-  disc(g,13,cy-2,1,P.GH); disc(g,20,cy-4,1,P.GH); disc(g,27,cy-2,1,P.GH);
-  pline(g,13,cy+4,13,cy-2,P.GD); pline(g,20,cy+4,20,cy-4,P.GD);
-  // Глаза (карие) + ресницы
-  disc(g,15,19,2,P.EY); disc(g,25,19,2,P.EY);
-  pset(g,14,18,'#fff'); pset(g,24,18,'#fff');
-  pline(g,12,17,10,15,P.LA); pline(g,13,16,12,14,P.LA);     // ресницы левого
-  pline(g,28,17,30,15,P.LA); pline(g,27,16,28,14,P.LA);     // ресницы правого
-  // Щёчки и улыбка
-  disc(g,10,23,2,P.CH); disc(g,30,23,2,P.CH);
-  pline(g,17,25,20,27,P.MO); pline(g,20,27,23,25,P.MO);
-  // Пышное платье с рюшами и голубой каймой
-  ellO(g,20,36,11,7,P.DR,P.DS);        // верх юбки
-  ellO(g,20,42,13,7,P.DR,P.DS);        // средний ярус
-  ell(g,20,45,13,4,P.TR);              // голубая кайма
-  // рюши (точки)
-  for(let i=8;i<=32;i+=4){ pset(g,i,44,P.DS); pset(g,i,39,P.DS); }
-  // Пышные рукава
-  discO(g,8,34,3,P.DR,P.DS); discO(g,32,34,3,P.DR,P.DS);
-  // Ножки
-  discO(g,15,49,3,P.W,P.ED); discO(g,25,49,3,P.W,P.ED);
-  // Бантик спереди на поясе (намёк)
-  disc(g,20,33,2,P.BW); tri(g,20,33,16,31,16,35,P.BW); tri(g,20,33,24,31,24,35,P.BW);
-}
-const princessSpr = sprite(40,54, composePrincess);
-
-// ---- АЛМАЗ (жёлтый гранёный). Сетка 20x20 ----
-function composeDiamond(g){
-  const OUT='#c9871c', LT='#fff3bf', MD='#ffcf3f', DK='#eaa227', TP='#ffe07a';
-  // Верхняя «корона» (плоский шестиугольник)
-  tri(g,3,6, 10,2, 16,6, TP);
-  tri(g,3,6, 16,6, 10,8, MD);
-  // Нижний «павильон» (клин к точке)
-  tri(g,3,6, 16,6, 10,18, MD);
-  tri(g,3,6, 10,18, 8,9, LT);      // левая грань светлее
-  tri(g,16,6, 10,18, 12,9, DK);    // правая грань темнее
-  // Обводка граней
-  pline(g,3,6,16,6,OUT); pline(g,3,6,10,18,OUT); pline(g,16,6,10,18,OUT);
-  pline(g,10,2,3,6,OUT); pline(g,10,2,16,6,OUT); pline(g,10,2,10,8,OUT);
-  pline(g,3,6,10,8,OUT); pline(g,16,6,10,8,OUT);
-  // Блик
-  pset(g,8,4,'#ffffff'); pset(g,9,4,'#fffbe6');
-}
-const diamondSpr = sprite(20,22, composeDiamond);
-
-// ---- БОБ (жёлтая глянцевая фасолина). Сетка 16x12 ----
-function composeBean(g){
-  const Y='#ffd24d', YD='#e9a52c', OUT='#c98a1e';
-  ellO(g,8,6,7,5,Y,OUT);
-  ell(g,8,8,5,3,YD);                 // тень снизу
-  ell(g,5,4,2,2,'#fffbe6');          // белый блик
-  pset(g,5,3,'#ffffff');
-}
-const beanSpr = sprite(16,12, composeBean);
+const dinoImg     = pixSprite(SPRITE_DATA.dino);
+const dinoRun     = [dinoImg, dinoImg];   // одна поза; «беговой» подскок добавляется при отрисовке
+const dinoJump    = dinoImg;
+const princessSpr = pixSprite(SPRITE_DATA.princess);
+const diamondSpr  = pixSprite(SPRITE_DATA.diamond);
+const beanSpr     = pixSprite(SPRITE_DATA.bean);
 
 // ---- ДРАКОН (враг, летит, смотрит влево). Сетка 46x30, 2 кадра крыла ----
 function composeDragon(g, wingUp){
@@ -902,7 +871,9 @@ function drawPlayer(pl, camY){
   let spr;
   if(!pl.onGround) spr=dinoJump;
   else spr=dinoRun[Math.floor(pl.animT)%2];
-  ctx.drawImage(spr, pl.x|0, (pl.y-camY)|0);
+  // Спрайт один — «беговой» подскок имитируем лёгким вертикальным биением
+  const bob = pl.onGround ? (Math.floor(pl.animT)%2===0 ? 0 : -2) : 0;
+  ctx.drawImage(spr, pl.x|0, (pl.y-camY+bob)|0);
 }
 
 /* ------------------------------------------------------------------
@@ -1110,6 +1081,7 @@ function endGame(win){
     document.getElementById('winDia').textContent=entry.diamonds;
     document.getElementById('winTime').textContent=fmtTime(entry.time);
     renderHS(document.getElementById('hsWin'), idx);
+    const cb=document.getElementById('codeBox'); if(cb) cb.classList.remove('copied');
     els.winScreen.classList.remove('hidden');
   } else {
     state=STATE.LOSE; SFX.lose();
@@ -1163,24 +1135,21 @@ function frame(now){
 }
 
 /* ------------------------------------------------------------------
-   ВВОД — прыжок: Пробел/↑/W/клик/тап. На меню — старт/рестарт.
+   ВВОД — только касания (мобильное управление):
+     • один тап  = прыжок
+     • второй тап в воздухе = двойной прыжок
+   Никаких клавиш. Старт/рестарт — только по кнопкам на экранах.
    ------------------------------------------------------------------ */
 function actionJump(){
   ensureAudio();
-  if(state===STATE.RUN) tryJump();
+  if(state===STATE.RUN) tryJump();          // tryJump сам делает двойной прыжок при повторном тапе в воздухе
   else if(state===STATE.FINALE) finaleTryHop();
 }
-window.addEventListener('keydown', e=>{
-  if(e.code==='Space'||e.code==='ArrowUp'||e.code==='KeyW'){
-    e.preventDefault();
-    if(state===STATE.RUN||state===STATE.FINALE) actionJump();
-    else if(state===STATE.MENU) startPlay();
-    else if(state===STATE.WIN||state===STATE.LOSE) startPlay();
-  }
-});
-// Клик/тап по канвасу
-canvas.addEventListener('mousedown', e=>{ e.preventDefault(); if(state===STATE.RUN||state===STATE.FINALE) actionJump(); });
-canvas.addEventListener('touchstart', e=>{ e.preventDefault(); ensureAudio(); if(state===STATE.RUN||state===STATE.FINALE) actionJump(); }, {passive:false});
+// pointerdown покрывает и тач, и мышь (для теста на десктопе) единообразно
+canvas.addEventListener('pointerdown', e=>{
+  e.preventDefault();
+  if(state===STATE.RUN||state===STATE.FINALE) actionJump();
+}, {passive:false});
 
 // Кнопки
 document.getElementById('playBtn').addEventListener('click', startPlay);
@@ -1190,6 +1159,25 @@ document.getElementById('loseAgainBtn').addEventListener('click', startPlay);
 // Кнопка звука
 const muteBtn=document.getElementById('muteBtn');
 muteBtn.addEventListener('click', ()=>{ muted=!muted; muteBtn.textContent = muted?'♪ ЗВУК: ВЫКЛ':'♪ ЗВУК: ВКЛ'; ensureAudio(); });
+
+// Кодовое слово (экран победы) — копируется по тапу, затем показываем «Скопировано ✓»
+const codeBox=document.getElementById('codeBox');
+if(codeBox){
+  codeBox.addEventListener('click', async ()=>{
+    const word=document.getElementById('codeWord').textContent.trim();
+    let ok=false;
+    try{ if(navigator.clipboard && navigator.clipboard.writeText){ await navigator.clipboard.writeText(word); ok=true; } }catch(e){}
+    if(!ok){ // запасной способ (старые/ограниченные окружения)
+      try{
+        const ta=document.createElement('textarea'); ta.value=word;
+        ta.style.position='fixed'; ta.style.top='-1000px'; document.body.appendChild(ta);
+        ta.focus(); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+      }catch(e){}
+    }
+    codeBox.classList.add('copied');           // показываем подтверждение
+    if(typeof SFX!=='undefined' && SFX.bean) SFX.bean();
+  });
+}
 
 // Инициализация экранов
 renderHS(document.getElementById('hsStart'), -1);
