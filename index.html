@@ -1,0 +1,1200 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>DINO JUMPER — Спасение Принцессы</title>
+<style>
+  /* ============================================================
+     РЕТРО-СТИЛЬ. Пиксельная палитра, чёткие пиксели без сглаживания.
+     HUD и экраны — это HTML/CSS поверх канваса (так текст читаемее,
+     а игровой мир остаётся хрустящим пиксель-артом).
+     ============================================================ */
+  :root{
+    --ink:#1f2233; --paper:#f4f7ff;
+    --mint:#66c8bf; --mint-d:#3f9a92;
+    --pink:#f28ba3; --pink-d:#d05f7c;
+    --gold:#f2c94c; --gold-d:#c99a24;
+    --sky:#7ec8ff; --panel:#2a2f4a; --panel-2:#3a4066;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%;}
+  body{
+    background:#12142a;
+    background-image:
+      radial-gradient(circle at 20% 10%, #22264a 0, #12142a 60%),
+      repeating-linear-gradient(0deg, transparent 0 3px, rgba(0,0,0,.05) 3px 4px);
+    display:flex; align-items:center; justify-content:center;
+    min-height:100%; overflow:hidden;
+    font-family:'Courier New', 'Consolas', monospace;
+    color:var(--paper);
+    -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent;
+  }
+
+  /* Обёртка держит соотношение 16:9 и масштабирует всё вместе */
+  #wrap{
+    position:relative;
+    width:min(96vw, calc(96vh * 16 / 9));
+    aspect-ratio:16/9;
+    box-shadow:0 0 0 4px #0a0b18, 0 0 0 8px #2a2f4a, 0 18px 50px rgba(0,0,0,.6);
+    border-radius:6px; overflow:hidden;
+    background:#0a0b18;
+  }
+
+  /* Канвас с игровым миром — жёсткие пиксели */
+  #game{
+    position:absolute; inset:0; width:100%; height:100%;
+    image-rendering:pixelated; image-rendering:crisp-edges;
+    display:block;
+  }
+
+  /* ---------- HUD ---------- */
+  #hud{
+    position:absolute; top:0; left:0; right:0;
+    display:flex; align-items:center; gap:2%;
+    padding:1.6% 2.2%; pointer-events:none;
+    font-weight:bold; letter-spacing:1px;
+    text-transform:uppercase;
+    font-size:clamp(9px, 2.1vw, 20px);
+    text-shadow:2px 2px 0 #0a0b18;
+    z-index:5;
+  }
+  #hud.hidden{display:none;}
+  #hearts{image-rendering:pixelated; height:clamp(14px,3.4vw,30px); width:auto;}
+  .hud-chip{
+    display:flex; align-items:center; gap:6px;
+    background:rgba(20,22,44,.55); padding:3px 9px; border-radius:4px;
+    box-shadow:inset 0 0 0 2px rgba(255,255,255,.08);
+  }
+  .hud-spacer{flex:1;}
+  #diaIcon{image-rendering:pixelated; height:clamp(12px,2.8vw,24px);}
+  #phaseTag{color:var(--mint); font-size:.82em; opacity:.9;}
+
+  /* Всплывающая надпись по центру (например «БАШНЯ!») */
+  #toast{
+    position:absolute; top:16%; left:50%; transform:translateX(-50%) scale(1);
+    z-index:6; pointer-events:none; text-align:center;
+    font-weight:bold; letter-spacing:3px; text-transform:uppercase;
+    font-size:clamp(16px, 4.6vw, 44px);
+    color:var(--gold); text-shadow:3px 3px 0 #7a1e2e, 5px 5px 0 rgba(0,0,0,.35);
+    opacity:0; transition:opacity .3s;
+  }
+  #toast.show{opacity:1; animation:toastPop .5s ease-out;}
+  @keyframes toastPop{0%{transform:translateX(-50%) scale(.4);}60%{transform:translateX(-50%) scale(1.12);}100%{transform:translateX(-50%) scale(1);}}
+
+  /* ---------- ЭКРАНЫ (старт/победа/поражение) ---------- */
+  .screen{
+    position:absolute; inset:0; z-index:10;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:2.2%; padding:4%;
+    background:linear-gradient(180deg, rgba(12,14,34,.72), rgba(12,14,34,.86));
+    text-align:center;
+  }
+  .screen.hidden{display:none;}
+  .screen.translucent{background:linear-gradient(180deg, rgba(12,14,34,.15) 0 40%, rgba(12,14,34,.82) 78%);}
+
+  .title{
+    font-size:clamp(26px, 8vw, 78px); font-weight:bold; letter-spacing:4px;
+    line-height:.95; text-transform:uppercase;
+    color:var(--paper);
+    text-shadow:
+      3px 3px 0 var(--mint-d), 6px 6px 0 var(--pink-d), 9px 9px 0 rgba(0,0,0,.4);
+  }
+  .title .b{color:var(--mint);} .title .p{color:var(--pink);}
+  .subtitle{font-size:clamp(10px,2.4vw,18px); letter-spacing:2px; color:#c8d2f0; text-transform:uppercase; opacity:.9;}
+  .big-result{font-size:clamp(22px,6.6vw,60px); letter-spacing:3px; text-transform:uppercase; font-weight:bold;}
+  .win-c{color:var(--gold); text-shadow:3px 3px 0 var(--pink-d), 6px 6px 0 rgba(0,0,0,.4);}
+  .lose-c{color:var(--pink); text-shadow:3px 3px 0 #401320, 6px 6px 0 rgba(0,0,0,.4);}
+
+  .stat-row{display:flex; gap:5%; flex-wrap:wrap; justify-content:center; font-size:clamp(11px,2.7vw,20px); letter-spacing:1px;}
+  .stat-row b{color:var(--gold);}
+
+  .controls{font-size:clamp(9px,2.2vw,16px); letter-spacing:1px; color:#aeb8dd; line-height:1.7; text-transform:uppercase;}
+  .controls .key{display:inline-block; background:#3a4066; color:#fff; padding:1px 8px; border-radius:4px; box-shadow:inset 0 -2px 0 rgba(0,0,0,.35); margin:0 2px;}
+
+  /* Таблица рекордов */
+  .hs{
+    width:min(92%, 420px); background:rgba(20,22,44,.6);
+    box-shadow:inset 0 0 0 2px rgba(255,255,255,.09); border-radius:6px;
+    padding:2.5% 4%;
+  }
+  .hs h3{font-size:clamp(10px,2.4vw,16px); letter-spacing:2px; color:var(--mint); text-transform:uppercase; margin-bottom:6px;}
+  .hs ol{list-style:none;}
+  .hs li{
+    display:flex; justify-content:space-between; gap:10px;
+    font-size:clamp(9px,2.1vw,15px); letter-spacing:1px;
+    padding:2px 0; border-bottom:1px dashed rgba(255,255,255,.08);
+  }
+  .hs li:last-child{border-bottom:none;}
+  .hs .rank{color:var(--gold); width:1.4em;}
+  .hs .sc{color:var(--paper); font-weight:bold;}
+  .hs .meta{color:#8b96bf; font-size:.85em;}
+  .hs .empty{color:#8b96bf; text-align:center; padding:8px 0;}
+  .hs li.me{background:rgba(102,200,191,.16); border-radius:3px;}
+
+  /* Кнопки */
+  .btn{
+    cursor:pointer; border:none; font-family:inherit; font-weight:bold;
+    text-transform:uppercase; letter-spacing:3px;
+    font-size:clamp(13px,3.4vw,26px);
+    color:#0a0b18; background:var(--mint);
+    padding:.6em 1.4em; border-radius:6px;
+    box-shadow:0 6px 0 var(--mint-d), 0 8px 12px rgba(0,0,0,.4);
+    transition:transform .05s, box-shadow .05s; margin-top:.4%;
+  }
+  .btn:active{transform:translateY(4px); box-shadow:0 2px 0 var(--mint-d), 0 3px 8px rgba(0,0,0,.4);}
+  .btn.pink{background:var(--pink); box-shadow:0 6px 0 var(--pink-d), 0 8px 12px rgba(0,0,0,.4);}
+  .btn.pink:active{box-shadow:0 2px 0 var(--pink-d);}
+
+  #muteBtn{
+    position:absolute; top:2%; right:2%; z-index:11;
+    cursor:pointer; background:rgba(20,22,44,.6); color:#fff; border:none;
+    box-shadow:inset 0 0 0 2px rgba(255,255,255,.12);
+    font-family:inherit; font-size:clamp(11px,2.4vw,18px);
+    padding:4px 9px; border-radius:5px; letter-spacing:1px;
+  }
+
+  .hint{font-size:clamp(8px,2vw,13px); color:#8b96bf; letter-spacing:1px; opacity:.85;}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game" width="480" height="270"></canvas>
+
+  <!-- HUD -->
+  <div id="hud" class="hidden">
+    <canvas id="hearts" width="120" height="24"></canvas>
+    <div class="hud-chip"><span id="scoreVal">0</span></div>
+    <div class="hud-chip"><img id="diaIcon" alt="diamond"><span id="diaVal">0</span></div>
+    <div class="hud-spacer"></div>
+    <div class="hud-chip"><span id="phaseTag">ЛЁГКО</span></div>
+    <div class="hud-chip"><span id="timeVal">0:00</span></div>
+  </div>
+
+  <div id="toast"></div>
+  <button id="muteBtn">♪ ЗВУК: ВКЛ</button>
+
+  <!-- СТАРТ -->
+  <div id="startScreen" class="screen">
+    <div class="title"><span class="b">DINO</span> <span class="p">JUMPER</span></div>
+    <div class="subtitle">Пробеги к башне и спаси принцессу-Дино</div>
+    <div class="controls">
+      <span class="key">ПРОБЕЛ</span> / <span class="key">↑</span> / <span class="key">КЛИК</span> / <span class="key">ТАП</span> — прыжок · двойной прыжок в воздухе
+    </div>
+    <div class="hs" id="hsStart"><h3>★ Рекорды ★</h3><ol></ol></div>
+    <button class="btn" id="playBtn">▶ Играть</button>
+    <div class="hint">собирай бобы и алмазы · перепрыгивай драконов и гарпий</div>
+  </div>
+
+  <!-- ПОБЕДА -->
+  <div id="winScreen" class="screen translucent hidden">
+    <div class="big-result win-c">Победа!</div>
+    <div class="subtitle">Принцесса-Дино спасена ♥</div>
+    <div class="stat-row">
+      <div>Счёт: <b id="winScore">0</b></div>
+      <div>Алмазы: <b id="winDia">0</b></div>
+      <div>Время: <b id="winTime">0:00</b></div>
+    </div>
+    <div class="hs" id="hsWin"><h3>★ Рекорды ★</h3><ol></ol></div>
+    <button class="btn" id="winAgainBtn">↻ Заново</button>
+  </div>
+
+  <!-- ПОРАЖЕНИЕ -->
+  <div id="loseScreen" class="screen translucent hidden">
+    <div class="big-result lose-c">Game Over</div>
+    <div class="subtitle">Дино не добрался до башни…</div>
+    <div class="stat-row">
+      <div>Счёт: <b id="loseScore">0</b></div>
+      <div>Алмазы: <b id="loseDia">0</b></div>
+      <div>Время: <b id="loseTime">0:00</b></div>
+    </div>
+    <div class="hs" id="hsLose"><h3>★ Рекорды ★</h3><ol></ol></div>
+    <button class="btn pink" id="loseAgainBtn">↻ Заново</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ================================================================
+   DINO JUMPER — пиксельный раннер-джампер (один файл, без сервера).
+   Разделы кода:
+     1) КОНФИГ (крутилки баланса)
+     2) Пиксельная библиотека спрайтов (рисуем сетками -> запекаем)
+     3) Определения спрайтов (Дино, Принцесса, алмаз, боб, враги…)
+     4) Аудио (Web Audio, ретро-бип)
+     5) Рекорды (localStorage) + экраны/HUD
+     6) Мир: параллакс-фон, сущности, спавн-директор
+     7) Физика игрока, столкновения, урон
+     8) Финал: башня и подъём по уступам к принцессе
+     9) Главный цикл (фиксированный шаг) и ввод
+   ================================================================ */
+
+/* ------------------------------------------------------------------
+   1) КОНФИГ — всё, что удобно подкручивать.
+   Скорости заданы в «пикселях за кадр» при 60 FPS; физика идёт
+   фиксированным шагом 1/60 c, поэтому числа стабильны.
+   ------------------------------------------------------------------ */
+const CONFIG = {
+  durationSec:   275,      // длительность забега до появления башни (~4.5 мин) + финал ~ до 5 мин
+  speedStart:    2.55,     // стартовая скорость прокрутки мира
+  speedMax:      7.1,      // скорость на пике сложности
+  gravity:       0.78,     // сила тяжести
+  jumpV:        -12.4,     // импульс первого прыжка
+  doubleJump:    true,     // разрешить второй прыжок в воздухе
+  doubleJumpV:  -10.6,     // импульс второго прыжка
+
+  maxHealth:     5,        // сердечек
+  dmgEnemy:      1,        // урон от врага
+  dmgObstacle:   1,        // урон от препятствия
+  iFramesSec:    1.15,     // неуязвимость после удара
+
+  beanScore:     15,       // очки за боб
+  diamondScore:  120,      // очки за алмаз
+  distScoreMul:  0.10,     // очки за пройденную дистанцию
+
+  // Интервалы спавна (сек): [в начале, на пике] — интерполируются прогрессом p=0..1
+  obstacleEvery: [1.70, 0.66],
+  enemyEvery:    [3.60, 0.98],
+  enemyStartSec: 7,        // враги появляются не сразу
+  collectEvery:  [0.85, 1.30],
+  minGapPx:      118,      // минимальный зазор между опасными объектами (масштаб. со скоростью)
+
+  // Финал (подъём на башню)
+  towerLedges:   9,        // сколько уступов до вершины
+  ledgeRise:     44,       // на сколько выше каждый следующий уступ
+  ledgeShift:    58,       // горизонтальный размах «зигзага»
+  hopV:         -11.2,     // импульс прыжка при подъёме
+  hopVX:         2.9,      // горизонтальная скорость прыжка на уступ
+};
+
+/* Виртуальное разрешение мира (ретро). Канвас = ровно эти пиксели,
+   CSS растягивает его крупными чёткими пикселями. */
+const VW = 480, VH = 270;
+const GROUND_Y = 226;                 // линия земли (координата верха земли)
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+
+/* ------------------------------------------------------------------
+   2) ПИКСЕЛЬНАЯ БИБЛИОТЕКА
+   Спрайт = сетка ячеек (цвет или null). Рисуем примитивами,
+   затем «запекаем» в offscreen-канвас 1:1 и рисуем с отключённым
+   сглаживанием — получаются хрустящие пиксели.
+   ------------------------------------------------------------------ */
+function Grid(w,h){ return { w, h, d:new Array(w*h).fill(null) }; }
+function pset(g,x,y,c){ x=x|0; y=y|0; if(x>=0&&y>=0&&x<g.w&&y<g.h) g.d[y*g.w+x]=c; }
+function prect(g,x,y,w,h,c){ for(let j=0;j<h;j++) for(let i=0;i<w;i++) pset(g,x+i,y+j,c); }
+// Заполненный круг (с лёгкой «пухлостью», чтобы мелкие круги были круглее)
+function disc(g,cx,cy,r,c){ for(let y=-r;y<=r;y++) for(let x=-r;x<=r;x++) if(x*x+y*y<=r*r+r*0.6) pset(g,cx+x,cy+y,c); }
+// Заполненный эллипс
+function ell(g,cx,cy,rx,ry,c){ for(let y=-ry;y<=ry;y++) for(let x=-rx;x<=rx;x++){ const nx=x/(rx||1), ny=y/(ry||1); if(nx*nx+ny*ny<=1.06) pset(g,cx+x,cy+y,c); } }
+// Круг с 1px обводкой (edge) и заливкой (fill)
+function discO(g,cx,cy,r,fill,edge){ disc(g,cx,cy,r,edge); disc(g,cx,cy,r-1,fill); }
+function ellO(g,cx,cy,rx,ry,fill,edge){ ell(g,cx,cy,rx,ry,edge); ell(g,cx,cy,rx-1,ry-1,fill); }
+// Линия (Брезенхэм)
+function pline(g,x0,y0,x1,y1,c){ x0|=0;y0|=0;x1|=0;y1|=0; const dx=Math.abs(x1-x0),dy=-Math.abs(y1-y0); const sx=x0<x1?1:-1, sy=y0<y1?1:-1; let e=dx+dy; for(;;){ pset(g,x0,y0,c); if(x0===x1&&y0===y1)break; const e2=2*e; if(e2>=dy){e+=dy;x0+=sx;} if(e2<=dx){e+=dx;y0+=sy;} } }
+// Треугольник (заливка через диапазоны строк)
+function tri(g,ax,ay,bx,by,cx,cy,c){
+  const minY=Math.min(ay,by,cy)|0, maxY=Math.max(ay,by,cy)|0;
+  for(let y=minY;y<=maxY;y++){
+    const xs=[];
+    edgeX(ax,ay,bx,by,y,xs); edgeX(bx,by,cx,cy,y,xs); edgeX(cx,cy,ax,ay,y,xs);
+    if(xs.length>=2){ const x0=Math.min(...xs)|0, x1=Math.max(...xs)|0; for(let x=x0;x<=x1;x++) pset(g,x,y,c); }
+  }
+}
+function edgeX(x0,y0,x1,y1,y,out){ if((y0<=y&&y1>y)||(y1<=y&&y0>y)){ const t=(y-y0)/(y1-y0); out.push(x0+(x1-x0)*t); } }
+
+// hex -> [r,g,b,a]; поддержка #rgb, #rrggbb, #rrggbbaa
+function hexRGBA(h){
+  if(h[0]==='#') h=h.slice(1);
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(h.length===6) h+='ff';
+  return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16),parseInt(h.slice(6,8),16)];
+}
+// Запекаем сетку в canvas (1 ячейка = 1 пиксель)
+function bake(g){
+  const c=document.createElement('canvas'); c.width=g.w; c.height=g.h;
+  const x=c.getContext('2d'); const img=x.createImageData(g.w,g.h);
+  for(let i=0;i<g.w*g.h;i++){ const col=g.d[i]; if(col){ const [r,gg,b,a]=hexRGBA(col); const o=i*4; img.data[o]=r; img.data[o+1]=gg; img.data[o+2]=b; img.data[o+3]=a; } }
+  x.putImageData(img,0,0); return c;
+}
+// Быстрый способ собрать спрайт: composer(g) -> baked canvas
+function sprite(w,h,composer){ const g=Grid(w,h); composer(g); return bake(g); }
+
+/* ------------------------------------------------------------------
+   3) ОПРЕДЕЛЕНИЯ СПРАЙТОВ
+   Персонажи перерисованы по 3D-референсам в пиксель-арт:
+   узнаваемые цвета/силуэт сохранены (белый Дино с мятными шипами,
+   розовая принцесса с короной и платьем, жёлтые алмаз и боб).
+   ------------------------------------------------------------------ */
+
+// -- ПАЛИТРЫ --
+// Дино: белый корпус, мятные шипы, чёрные глаза, розовые щёчки, открытый ротик.
+const DINO = { W:'#f6f7fb', SH:'#dde1ee', ED:'#b4bccf', TL:'#7fd6cd', TD:'#4faca3',
+               EY:'#242736', SN:'#ffffff', CH:'#f0a0ab', MO:'#c25a68', MI:'#a4485a', TO:'#eaa7ae' };
+// Принцесса: розовый корпус, золотая корона, платье с голубой каймой, розовые шипы/бант.
+const PR   = { W:'#f7cad6', SH:'#eab4c3', ED:'#d99cae', GO:'#f2cf5f', GD:'#c99a2e', GH:'#fff0b8',
+               EY:'#6d4326', LA:'#3a2415', CH:'#ef9db0', MO:'#c85f76', DR:'#f9d3dd', DS:'#eeb9c9',
+               TR:'#bcd0f2', BW:'#f4a9c0', BWD:'#dd85a2', TL:'#f2a6bd', TD:'#d97f9f' };
+
+// ---- ДИНО (герой), вид спереди-3/4, бегущий. Сетка 40x46 ----
+// legFrame: 0/1 — кадры бега; jumping — поза прыжка (ноги поджаты)
+function composeDino(g, legFrame, jumping){
+  const P=DINO;
+  // Задние мятные шипы (слева, «за спиной») — выглядывают из-за головы/тела
+  const backSpikes=[[6,12,4],[4,19,4],[5,26,4],[8,33,3]];
+  for(const [x,y,r] of backSpikes){ discO(g,x,y,r,P.TL,P.TD); disc(g,x-1,y-1,r-2,'#a6e6df'); }
+  // Хвост (снизу-справа), белый с мятным кончиком
+  discO(g,32,35,5,P.W,P.ED); disc(g,34,36,2,P.TL);
+  // Верхний шип на макушке
+  ell(g,20,3,2,3,P.TD); ell(g,20,3,1,2,P.TL);
+  // Голова
+  discO(g,20,15,13,P.W,P.ED);
+  ell(g,17,23,9,5,P.SH);                 // мягкая тень снизу
+  // Тело
+  ellO(g,20,32,12,9,P.W,P.ED);
+  ell(g,20,37,9,4,P.SH);
+  // Ручки-cultышки
+  discO(g,8,31,3,P.W,P.ED); discO(g,32,31,3,P.W,P.ED);
+  // Ноги (анимация)
+  let l1x,l1y,l2x,l2y;
+  if(jumping){ l1x=14;l1y=40; l2x=25;l2y=40; }
+  else if(legFrame===0){ l1x=13;l1y=42; l2x=25;l2y=39; }
+  else { l1x=15;l1y=39; l2x=27;l2y=42; }
+  discO(g,l1x,l1y,3,P.W,P.ED); discO(g,l2x,l2y,3,P.W,P.ED);
+  // Глаза + блики
+  disc(g,14,14,3,P.EY); disc(g,26,14,3,P.EY);
+  pset(g,13,12,P.SN); pset(g,25,12,P.SN); pset(g,13,13,P.SN);
+  // Щёчки
+  disc(g,9,20,2,P.CH); disc(g,31,20,2,P.CH);
+  // Открытый ротик
+  ell(g,20,21,5,4,P.MO); ell(g,20,21,4,3,P.MI); ell(g,20,23,3,1,P.TO);
+  prect(g,17,18,7,1,'#f0eef2');          // верхняя «губа»/зубки
+}
+const dinoRun = [ sprite(40,48,g=>composeDino(g,0,false)), sprite(40,48,g=>composeDino(g,1,false)) ];
+const dinoJump = sprite(40,48,g=>composeDino(g,0,true));
+
+// ---- ПРИНЦЕССА-ДИНО. Сетка 40x54 ----
+function composePrincess(g){
+  const P=PR;
+  // Розовые шипы за спиной
+  const bs=[[7,20,4],[5,27,3],[7,33,3]];
+  for(const [x,y,r] of bs){ discO(g,x,y,r,P.TL,P.TD); }
+  // Голова
+  discO(g,20,20,12,P.W,P.ED); ell(g,17,27,8,4,P.SH);
+  // Корона (золото)
+  const cy=6;
+  prect(g,13,cy+4,15,3,P.GO); prect(g,13,cy+6,15,1,P.GD);   // ободок
+  tri(g,13,cy+4,13,cy-2,17,cy+4,P.GO);
+  tri(g,20,cy+4,20,cy-4,23,cy+4,P.GO);
+  tri(g,27,cy+4,27,cy-2,24,cy+4,P.GO);
+  disc(g,13,cy-2,1,P.GH); disc(g,20,cy-4,1,P.GH); disc(g,27,cy-2,1,P.GH);
+  pline(g,13,cy+4,13,cy-2,P.GD); pline(g,20,cy+4,20,cy-4,P.GD);
+  // Глаза (карие) + ресницы
+  disc(g,15,19,2,P.EY); disc(g,25,19,2,P.EY);
+  pset(g,14,18,'#fff'); pset(g,24,18,'#fff');
+  pline(g,12,17,10,15,P.LA); pline(g,13,16,12,14,P.LA);     // ресницы левого
+  pline(g,28,17,30,15,P.LA); pline(g,27,16,28,14,P.LA);     // ресницы правого
+  // Щёчки и улыбка
+  disc(g,10,23,2,P.CH); disc(g,30,23,2,P.CH);
+  pline(g,17,25,20,27,P.MO); pline(g,20,27,23,25,P.MO);
+  // Пышное платье с рюшами и голубой каймой
+  ellO(g,20,36,11,7,P.DR,P.DS);        // верх юбки
+  ellO(g,20,42,13,7,P.DR,P.DS);        // средний ярус
+  ell(g,20,45,13,4,P.TR);              // голубая кайма
+  // рюши (точки)
+  for(let i=8;i<=32;i+=4){ pset(g,i,44,P.DS); pset(g,i,39,P.DS); }
+  // Пышные рукава
+  discO(g,8,34,3,P.DR,P.DS); discO(g,32,34,3,P.DR,P.DS);
+  // Ножки
+  discO(g,15,49,3,P.W,P.ED); discO(g,25,49,3,P.W,P.ED);
+  // Бантик спереди на поясе (намёк)
+  disc(g,20,33,2,P.BW); tri(g,20,33,16,31,16,35,P.BW); tri(g,20,33,24,31,24,35,P.BW);
+}
+const princessSpr = sprite(40,54, composePrincess);
+
+// ---- АЛМАЗ (жёлтый гранёный). Сетка 20x20 ----
+function composeDiamond(g){
+  const OUT='#c9871c', LT='#fff3bf', MD='#ffcf3f', DK='#eaa227', TP='#ffe07a';
+  // Верхняя «корона» (плоский шестиугольник)
+  tri(g,3,6, 10,2, 16,6, TP);
+  tri(g,3,6, 16,6, 10,8, MD);
+  // Нижний «павильон» (клин к точке)
+  tri(g,3,6, 16,6, 10,18, MD);
+  tri(g,3,6, 10,18, 8,9, LT);      // левая грань светлее
+  tri(g,16,6, 10,18, 12,9, DK);    // правая грань темнее
+  // Обводка граней
+  pline(g,3,6,16,6,OUT); pline(g,3,6,10,18,OUT); pline(g,16,6,10,18,OUT);
+  pline(g,10,2,3,6,OUT); pline(g,10,2,16,6,OUT); pline(g,10,2,10,8,OUT);
+  pline(g,3,6,10,8,OUT); pline(g,16,6,10,8,OUT);
+  // Блик
+  pset(g,8,4,'#ffffff'); pset(g,9,4,'#fffbe6');
+}
+const diamondSpr = sprite(20,22, composeDiamond);
+
+// ---- БОБ (жёлтая глянцевая фасолина). Сетка 16x12 ----
+function composeBean(g){
+  const Y='#ffd24d', YD='#e9a52c', OUT='#c98a1e';
+  ellO(g,8,6,7,5,Y,OUT);
+  ell(g,8,8,5,3,YD);                 // тень снизу
+  ell(g,5,4,2,2,'#fffbe6');          // белый блик
+  pset(g,5,3,'#ffffff');
+}
+const beanSpr = sprite(16,12, composeBean);
+
+// ---- ДРАКОН (враг, летит, смотрит влево). Сетка 46x30, 2 кадра крыла ----
+function composeDragon(g, wingUp){
+  const G='#63b93f', GD='#3f8a26', BEL='#cbe79f', WNG='#357a1f', WNM='#57a83a',
+        HORN='#e8e2c8', EW='#ffffff', ER='#e23b3b', TEE='#ffffff', FIRE='#ff8a3c';
+  // Хвост справа со «шпилем»
+  ellO(g,38,18,5,3,G,GD); tri(g,42,15,45,18,42,21,GD);
+  // Тело
+  ellO(g,24,17,11,7,G,GD); ell(g,24,20,9,3,BEL);
+  // Шипы на спине
+  for(let x=16;x<=32;x+=5) tri(g,x,10,x+3,10,x+1,6,GD);
+  // Голова слева
+  discO(g,10,15,6,G,GD);
+  // Морда/пасть
+  ell(g,4,17,3,2,G); tri(g,1,18,6,16,6,20,GD);
+  prect(g,2,19,7,1,TEE);           // зубки
+  // Рог
+  tri(g,12,9,14,3,15,9,HORN);
+  // Глаз
+  disc(g,10,13,2,EW); disc(g,10,13,1,ER);
+  // Огонёк из пасти
+  tri(g,1,18,-3,17,1,19,FIRE); pset(g,-1,18,'#ffd23f');
+  // Лапки
+  discO(g,20,24,2,G,GD); discO(g,28,24,2,G,GD);
+  // Крыло (анимация)
+  if(wingUp){ tri(g,22,12, 30,-2, 34,10, WNG); tri(g,22,12, 34,10, 30,12, WNM); }
+  else      { tri(g,22,14, 34,22, 34,10, WNG); tri(g,22,14, 30,20, 26,15, WNM); }
+}
+const dragonSpr = [ sprite(48,32,g=>composeDragon(g,true)), sprite(48,32,g=>composeDragon(g,false)) ];
+
+// ---- ГАРПИЯ (враг, летит, смотрит влево). Сетка 40x30, 2 кадра ----
+function composeHarpy(g, wingUp){
+  const PU='#9a6fd0', PD='#6d49a8', PM='#8158c4', FE='#b596e0',
+        BEAK='#f0b429', EYE='#e8412f', CLAW='#f0b429';
+  // Тело
+  ellO(g,20,17,6,7,PU,PD); ell(g,20,20,4,3,PM);
+  // Голова
+  discO(g,14,11,4,PU,PD);
+  tri(g,8,11,11,10,11,13,BEAK);       // клюв влево
+  disc(g,13,10,1,EYE);                 // злой глаз
+  pline(g,15,7,17,5,PD);               // хохолок
+  // Когти
+  pline(g,18,24,17,28,CLAW); pline(g,22,24,23,28,CLAW);
+  pset(g,16,28,CLAW); pset(g,24,28,CLAW);
+  // Хвостовые перья
+  tri(g,26,17,34,14,32,20,FE); tri(g,26,18,33,22,30,17,PM);
+  // Крылья (два больших пера, анимация)
+  if(wingUp){
+    tri(g,16,14, 6,0, 2,12, PU); tri(g,16,14, 4,10, 12,15, FE);
+    tri(g,24,14, 34,0, 38,12, PU); tri(g,24,14, 36,10, 28,15, FE);
+  } else {
+    tri(g,16,16, 2,20, 6,10, PU); tri(g,16,16, 4,18, 12,16, FE);
+    tri(g,24,16, 38,20, 34,10, PU); tri(g,24,16, 36,18, 28,16, FE);
+  }
+}
+const harpySpr = [ sprite(40,32,g=>composeHarpy(g,true)), sprite(40,32,g=>composeHarpy(g,false)) ];
+
+// ---- ПРЕПЯТСТВИЯ (наземные), рисую сам в пиксель-стиле ----
+// Камень
+const rockSpr = sprite(28,22,g=>{
+  const GR='#8b8f9c', GD='#63687a', GL='#a9adba';
+  discO(g,10,14,7,GR,GD); disc(g,8,11,3,GL);
+  discO(g,19,16,5,GR,GD); disc(g,18,14,2,GL);
+  prect(g,2,20,24,2,GD);            // тень-основание
+});
+// Шипы (ловушка)
+const spikeSpr = sprite(30,18,g=>{
+  const MB='#5a6070', MD='#3a3f4d', ST='#c8ccd8';
+  prect(g,1,13,28,4,MB); prect(g,1,16,28,1,MD);
+  for(let x=3;x<=25;x+=6){ tri(g,x,13,x+3,2,x+6,13,ST); tri(g,x+3,2,x+6,13,x+4,7,MD); }
+});
+// Пень/коряга
+const stumpSpr = sprite(24,24,g=>{
+  const BR='#8a5a34', BD='#5e3c22', BL='#a9754a', GN='#63b93f';
+  prect(g,6,8,12,15,BR); prect(g,6,8,3,15,BD); prect(g,15,8,3,15,BL);
+  ell(g,12,8,7,3,BL); ell(g,12,8,5,2,BR);
+  disc(g,4,6,3,GN); disc(g,20,7,3,GN); disc(g,12,3,3,GN); // листва
+});
+const obstacleSprites = { rock:rockSpr, spike:spikeSpr, stump:stumpSpr };
+
+// Иконка сердца (полное/пустое) для HUD
+const heartFull = sprite(12,11,g=>{
+  const R='#ff5a7a', HL='#ffd0da';
+  disc(g,3,3,2,R); disc(g,8,3,2,R); tri(g,0,4,11,4,6,10,R);
+  pset(g,2,2,HL); pset(g,3,2,HL);
+});
+const heartEmpty = sprite(12,11,g=>{
+  const E='#3a4066', ED='#252a45';
+  disc(g,3,3,2,E); disc(g,8,3,2,E); tri(g,0,4,11,4,6,10,E);
+  disc(g,3,3,1,ED); disc(g,8,3,1,ED); tri(g,2,5,9,5,6,8,ED);
+});
+
+// Заполняем HUD-иконки (алмаз, сердечки)
+document.getElementById('diaIcon').src = diamondSpr.toDataURL();
+
+/* ------------------------------------------------------------------
+   4) АУДИО — простые ретро-звуки через Web Audio (без файлов)
+   ------------------------------------------------------------------ */
+let audioCtx=null, muted=false;
+function ensureAudio(){ if(!audioCtx){ try{ audioCtx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} } if(audioCtx&&audioCtx.state==='suspended') audioCtx.resume(); }
+function beep(freq,dur,type='square',vol=0.06,slideTo=null){
+  if(muted||!audioCtx) return;
+  const t=audioCtx.currentTime;
+  const o=audioCtx.createOscillator(), g=audioCtx.createGain();
+  o.type=type; o.frequency.setValueAtTime(freq,t);
+  if(slideTo) o.frequency.exponentialRampToValueAtTime(slideTo,t+dur);
+  g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+  o.connect(g).connect(audioCtx.destination); o.start(t); o.stop(t+dur+0.02);
+}
+const SFX={
+  jump:()=>beep(420,0.14,'square',0.05,760),
+  jump2:()=>beep(560,0.13,'square',0.05,900),
+  bean:()=>beep(760,0.08,'square',0.05,1040),
+  diamond:()=>{beep(700,0.09,'square',0.06,980); setTimeout(()=>beep(1040,0.12,'square',0.06,1320),70);},
+  hurt:()=>beep(240,0.22,'sawtooth',0.07,90),
+  step:()=>beep(320,0.05,'triangle',0.02),
+  win:()=>{[523,659,784,1046].forEach((f,i)=>setTimeout(()=>beep(f,0.18,'square',0.06),i*140));},
+  lose:()=>{[392,330,262,196].forEach((f,i)=>setTimeout(()=>beep(f,0.2,'sawtooth',0.06),i*150));},
+};
+
+/* ------------------------------------------------------------------
+   5) РЕКОРДЫ + экраны/HUD
+   ------------------------------------------------------------------ */
+const HS_KEY='dinoJumperHS_v2';
+function loadHS(){ try{ return JSON.parse(localStorage.getItem(HS_KEY))||[]; }catch(e){ return []; } }
+function saveHS(list){ try{ localStorage.setItem(HS_KEY, JSON.stringify(list.slice(0,5))); }catch(e){} }
+function addHS(entry){
+  const list=loadHS(); list.push(entry);
+  list.sort((a,b)=>b.score-a.score);
+  const top=list.slice(0,5); saveHS(top);
+  return top.indexOf(entry); // индекс новой записи (для подсветки), может быть -1 если не в топе
+}
+function fmtTime(s){ s=Math.max(0,Math.floor(s)); const m=(s/60)|0; return m+':'+String(s%60).padStart(2,'0'); }
+function renderHS(container, highlightIdx){
+  const ol=container.querySelector('ol'); const list=loadHS(); ol.innerHTML='';
+  if(list.length===0){ ol.innerHTML='<li class="empty">Пока нет рекордов — стань первым!</li>'; return; }
+  list.forEach((e,i)=>{
+    const li=document.createElement('li'); if(i===highlightIdx) li.className='me';
+    li.innerHTML=`<span class="rank">${i+1}</span><span class="sc">${e.score}</span>`+
+                 `<span class="meta">◆${e.diamonds} · ${fmtTime(e.time)}</span>`;
+    ol.appendChild(li);
+  });
+}
+
+const els={
+  hud:document.getElementById('hud'),
+  hearts:document.getElementById('hearts'),
+  score:document.getElementById('scoreVal'),
+  dia:document.getElementById('diaVal'),
+  time:document.getElementById('timeVal'),
+  phase:document.getElementById('phaseTag'),
+  toast:document.getElementById('toast'),
+  startScreen:document.getElementById('startScreen'),
+  winScreen:document.getElementById('winScreen'),
+  loseScreen:document.getElementById('loseScreen'),
+};
+const heartsCtx=els.hearts.getContext('2d'); heartsCtx.imageSmoothingEnabled=false;
+function drawHearts(hp){
+  const c=els.hearts, x=heartsCtx; c.width=CONFIG.maxHealth*14+2; c.height=13;
+  x.imageSmoothingEnabled=false; x.clearRect(0,0,c.width,c.height);
+  for(let i=0;i<CONFIG.maxHealth;i++){ x.drawImage(i<hp?heartFull:heartEmpty, i*14, 1); }
+}
+let toastTimer=0;
+function showToast(text, dur=1.8){ els.toast.textContent=text; els.toast.classList.add('show'); toastTimer=dur; }
+
+/* ------------------------------------------------------------------
+   6) СОСТОЯНИЕ ИГРЫ и МИР
+   ------------------------------------------------------------------ */
+const STATE={ MENU:'menu', RUN:'run', FINALE:'finale', WIN:'win', LOSE:'lose' };
+let state=STATE.MENU;
+
+let game=null;
+function newGame(){
+  return {
+    time:0,                 // прошедшее игровое время (сек)
+    speed:CONFIG.speedStart,
+    worldX:0,               // накопленная прокрутка (для параллакса)
+    distance:0,             // пройденная дистанция (для очков)
+    hp:CONFIG.maxHealth,
+    invuln:0,               // таймер неуязвимости
+    scoreCollect:0,
+    diamonds:0,
+    // игрок
+    player:{ x:88, y:GROUND_Y-46, w:40, h:46, vy:0, onGround:true, jumps:0, animT:0 },
+    ents:[],                // препятствия/враги/призы
+    parts:[],               // частицы
+    // спавн-таймеры
+    tObs:1.2, tEnemy:CONFIG.enemyStartSec, tCol:0.8,
+    screenFlash:0,
+    // финал
+    finale:null,
+    ended:false,
+  };
+}
+
+// Параметры сложности от прогресса p=0..1
+function progress(){ return Math.min(1, game.time/CONFIG.durationSec); }
+function lerp(a,b,t){ return a+(b-a)*t; }
+function phaseName(p){
+  if(p<0.25) return 'ЛЁГКО';
+  if(p<0.55) return 'СРЕДНЕ';
+  if(p<0.85) return 'НАПРЯЖ.';
+  return 'ПИК!';
+}
+
+// ---------- ПАРАЛЛАКС-ФОН ----------
+// День -> закат -> сумерки: интерполируем цвета неба по прогрессу.
+function lerpColor(c1,c2,t){
+  const a=hexRGBA(c1), b=hexRGBA(c2);
+  const r=Math.round(lerp(a[0],b[0],t)), g=Math.round(lerp(a[1],b[1],t)), bl=Math.round(lerp(a[2],b[2],t));
+  return `rgb(${r},${g},${bl})`;
+}
+const SKY = {
+  top:   ['#7ec8ff','#f0935f','#242a63'],   // день, закат, сумерки
+  bottom:['#d3efff','#ffd7a0','#5b4f8f'],
+};
+function skyColors(p){
+  // p делим на два отрезка
+  let topC, botC;
+  if(p<0.5){ const t=p/0.5; topC=lerpColor(SKY.top[0],SKY.top[1],t); botC=lerpColor(SKY.bottom[0],SKY.bottom[1],t); }
+  else{ const t=(p-0.5)/0.5; topC=lerpColor(SKY.top[1],SKY.top[2],t); botC=lerpColor(SKY.bottom[1],SKY.bottom[2],t); }
+  return {topC,botC};
+}
+function drawBackground(p, wx){
+  const {topC,botC}=skyColors(p);
+  const grad=ctx.createLinearGradient(0,0,0,GROUND_Y);
+  grad.addColorStop(0,topC); grad.addColorStop(1,botC);
+  ctx.fillStyle=grad; ctx.fillRect(0,0,VW,GROUND_Y);
+
+  // Звёзды в сумерках
+  if(p>0.55){
+    const a=Math.min(1,(p-0.55)/0.3);
+    ctx.fillStyle=`rgba(255,255,255,${a*0.9})`;
+    for(let i=0;i<40;i++){ const sx=(i*97+13)%VW, sy=(i*53+7)%120; if((i*seedNoise(i))%3===0) ctx.fillRect(sx,sy,1,1); else ctx.fillRect(sx,sy,2,2); }
+  }
+  // Солнце/луна — опускается и меняет цвет
+  const sunY=lerp(46,150,p);
+  const sunX=VW-90;
+  ctx.fillStyle = p<0.55 ? `rgba(255,244,214,0.95)` : `rgba(226,232,255,0.95)`;
+  ctx.beginPath(); ctx.arc(sunX,sunY,18,0,7); ctx.fill();
+
+  // Дальние горы (медленный параллакс)
+  const m1=(wx*0.15)%160;
+  ctx.fillStyle = p<0.5 ? '#8fb0c8' : (p<0.8?'#6a5f8a':'#3a3560');
+  for(let x=-160; x<VW+160; x+=160){ mountain(x-m1, GROUND_Y-38, 160, 60); }
+  // Ближние холмы + лес
+  const m2=(wx*0.4)%140;
+  ctx.fillStyle = p<0.5 ? '#5aa06a' : (p<0.8?'#4a6a58':'#2c3a48');
+  for(let x=-140; x<VW+140; x+=140){ hill(x-m2, GROUND_Y-16, 140, 40); }
+  // Облака (лёгкий дрейф)
+  const c1=(wx*0.25)%600;
+  ctx.fillStyle = p<0.5 ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.5)';
+  for(const cl of CLOUDS){ cloud(((cl.x - c1)%600+600)%600 -80, cl.y, cl.s); }
+}
+function seedNoise(i){ return (Math.sin(i*97.13)*43758.5)&255; }
+const CLOUDS=[{x:60,y:36,s:1},{x:220,y:60,s:.8},{x:360,y:28,s:1.2},{x:500,y:70,s:.9},{x:140,y:90,s:.7}];
+function mountain(x,y,w,h){ ctx.beginPath(); ctx.moveTo(x,y+h); ctx.lineTo(x+w*0.5,y-4); ctx.lineTo(x+w,y+h); ctx.closePath(); ctx.fill(); }
+function hill(x,y,w,h){ ctx.beginPath(); ctx.moveTo(x,y+h); ctx.quadraticCurveTo(x+w*0.5,y-h*0.7,x+w,y+h); ctx.closePath(); ctx.fill(); }
+function cloud(x,y,s){ ctx.beginPath(); ctx.arc(x,y,10*s,0,7); ctx.arc(x+12*s,y+3,8*s,0,7); ctx.arc(x-11*s,y+3,7*s,0,7); ctx.arc(x,y+6,12*s,0,7); ctx.fill(); }
+function drawGround(p, wx){
+  // Земля
+  const gTop = p<0.5?'#caa15e':(p<0.8?'#8a6a4a':'#4a3f5a');
+  const gBot = p<0.5?'#8a6a3a':(p<0.8?'#5e4a34':'#2e2740');
+  ctx.fillStyle=gTop; ctx.fillRect(0,GROUND_Y,VW,VH-GROUND_Y);
+  ctx.fillStyle= p<0.5?'#6aa84a':(p<0.8?'#4a6a3a':'#2c3a48');
+  ctx.fillRect(0,GROUND_Y,VW,4);                       // трава-полоса
+  // Текстура земли (движется)
+  const off=(wx)%24; ctx.fillStyle=gBot;
+  for(let x=-24; x<VW; x+=24){ ctx.fillRect(x-off+6, GROUND_Y+12, 8,3); ctx.fillRect(x-off+16, GROUND_Y+24, 6,3); }
+}
+
+// ---------- ЧАСТИЦЫ ----------
+function spawnParts(x,y,color,n,spread=2.4,up=1){
+  for(let i=0;i<n;i++){ game.parts.push({ x,y, vx:(Math.random()-0.5)*spread, vy:-Math.random()*spread*up-0.5, life:0.5+Math.random()*0.4, color, size:1+((Math.random()*2)|0) }); }
+}
+function updateParts(dt){
+  for(const p of game.parts){ p.vy+=CONFIG.gravity*0.35; p.x+=p.vx; p.y+=p.vy; p.life-=dt; }
+  game.parts=game.parts.filter(p=>p.life>0);
+}
+function drawParts(camY=0){ for(const p of game.parts){ ctx.fillStyle=p.color; ctx.fillRect(p.x|0,(p.y-camY)|0,p.size,p.size); } }
+
+/* ------------------------------------------------------------------
+   7) СПАВН-ДИРЕКТОР (наземный забег)
+   ------------------------------------------------------------------ */
+function rightmostHazardX(){
+  let mx=0; for(const e of game.ents){ if(e.hazard) mx=Math.max(mx,e.x+e.w); } return mx;
+}
+function spawnObstacle(){
+  const p=progress();
+  const types=['rock','spike','stump'];
+  const key=types[(Math.random()*types.length)|0];
+  const spr=obstacleSprites[key];
+  const w=spr.width, h=spr.height;
+  game.ents.push({ kind:'obstacle', spr, x:VW+8, y:GROUND_Y-h+2, w, h, hazard:true, dmg:CONFIG.dmgObstacle, inset:0.22 });
+}
+function spawnEnemy(){
+  const p=progress();
+  const isDragon=Math.random()<0.6;
+  const frames=isDragon?dragonSpr:harpySpr;
+  const w=frames[0].width, h=frames[0].height;
+  // «низко» (перепрыгнуть) или «высоко» (пробежать под)
+  const low=Math.random()<0.68;
+  const y = low ? (GROUND_Y-h+2 - ((Math.random()*10)|0)) : (GROUND_Y-150-((Math.random()*20)|0));
+  game.ents.push({ kind:'enemy', frames, animT:Math.random(), bobBase:y, bob:0, x:VW+10, y, w, h,
+                   hazard:true, dmg:CONFIG.dmgEnemy, inset:0.26, extraVX:low?0:0.4 });
+}
+function spawnCollect(){
+  const p=progress();
+  const diamond = Math.random() < (0.22 + p*0.12); // алмазы становятся чуть чаще к концу
+  if(diamond){
+    const spr=diamondSpr, w=spr.width, h=spr.height;
+    const y=GROUND_Y - (70 + ((Math.random()*40)|0));   // повыше — стоит подпрыгнуть
+    game.ents.push({ kind:'diamond', spr, x:VW+10, y, w, h, hazard:false, bobT:Math.random()*6, baseY:y });
+  } else {
+    // Бобы: иногда дугой из 3 штук (ведут к прыжку)
+    const spr=beanSpr, w=spr.width, h=spr.height;
+    const arc=Math.random()<0.4;
+    const n=arc?3:1;
+    for(let i=0;i<n;i++){
+      const baseY = arc ? (GROUND_Y-40 - Math.sin((i+1)/(n+1)*Math.PI)*70) : (GROUND_Y-24-((Math.random()*36)|0));
+      game.ents.push({ kind:'bean', spr, x:VW+10+i*22, y:baseY, w, h, hazard:false, bobT:Math.random()*6, baseY });
+    }
+  }
+}
+function runSpawns(dt){
+  const p=progress();
+  const spd=game.speed;
+  const gap=CONFIG.minGapPx*(spd/CONFIG.speedStart)*0.7; // масштаб зазора со скоростью
+  // Препятствия
+  game.tObs-=dt;
+  if(game.tObs<=0 && rightmostHazardX()<VW-gap){
+    spawnObstacle();
+    game.tObs=lerp(CONFIG.obstacleEvery[0],CONFIG.obstacleEvery[1],p)*(0.75+Math.random()*0.5);
+  }
+  // Враги
+  game.tEnemy-=dt;
+  if(game.time>CONFIG.enemyStartSec && game.tEnemy<=0 && rightmostHazardX()<VW-gap*0.8){
+    spawnEnemy();
+    game.tEnemy=lerp(CONFIG.enemyEvery[0],CONFIG.enemyEvery[1],p)*(0.75+Math.random()*0.55);
+  }
+  // Призы
+  game.tCol-=dt;
+  if(game.tCol<=0){
+    spawnCollect();
+    game.tCol=lerp(CONFIG.collectEvery[0],CONFIG.collectEvery[1],p)*(0.8+Math.random()*0.5);
+  }
+}
+
+/* ------------------------------------------------------------------
+   8) ФИЗИКА ИГРОКА + СТОЛКНОВЕНИЯ (наземный забег)
+   ------------------------------------------------------------------ */
+function tryJump(){
+  const pl=game.player;
+  if(pl.onGround){ pl.vy=CONFIG.jumpV; pl.onGround=false; pl.jumps=1; SFX.jump(); spawnParts(pl.x+20,pl.y+46,'#ffffff',6,1.6,0.4); }
+  else if(CONFIG.doubleJump && pl.jumps<2){ pl.vy=CONFIG.doubleJumpV; pl.jumps=2; SFX.jump2(); spawnParts(pl.x+20,pl.y+40,'#bdeee9',7,2.2,0.6); }
+}
+function hitbox(e){ const ix=e.w*(e.inset||0.2), iy=e.h*(e.inset||0.2); return { x:e.x+ix, y:e.y+iy, w:e.w-ix*2, h:e.h-iy*2 }; }
+function aabb(a,b){ return a.x<b.x+b.w && a.x+a.w>b.x && a.y<b.y+b.h && a.y+a.h>b.y; }
+
+function damage(amount){
+  if(game.invuln>0) return;
+  game.hp-=amount; game.invuln=CONFIG.iFramesSec; game.screenFlash=0.32; SFX.hurt();
+  drawHearts(Math.max(0,game.hp));
+  spawnParts(game.player.x+20, game.player.y+20, '#ff5a7a', 12, 3, 0.8);
+  if(game.hp<=0){ endGame(false); }
+}
+function collect(e){
+  if(e.kind==='bean'){ game.scoreCollect+=CONFIG.beanScore; SFX.bean(); spawnParts(e.x+8,e.y+6,'#ffd24d',6,2,1); }
+  else { game.diamonds++; game.scoreCollect+=CONFIG.diamondScore; SFX.diamond(); spawnParts(e.x+10,e.y+10,'#ffe07a',14,3,1); showFloatScore(e.x,e.y,'+'+CONFIG.diamondScore); }
+  e.dead=true;
+}
+let floatScores=[];
+function showFloatScore(x,y,txt){ floatScores.push({x,y,txt,life:0.9}); }
+
+function updateRun(dt){
+  const pl=game.player;
+  // Сложность
+  const p=progress();
+  game.speed=lerp(CONFIG.speedStart,CONFIG.speedMax,p);
+  game.time+=dt;
+  game.distance+=game.speed*dt*60;
+  if(game.invuln>0) game.invuln-=dt;
+  if(game.screenFlash>0) game.screenFlash-=dt;
+
+  // Гравитация/прыжок
+  pl.vy+=CONFIG.gravity; pl.y+=pl.vy;
+  const feet=pl.y+46;
+  if(feet>=GROUND_Y){ pl.y=GROUND_Y-46; pl.vy=0; if(!pl.onGround){ spawnParts(pl.x+20,GROUND_Y,'#e9d3a8',5,1.5,0.3);} pl.onGround=true; pl.jumps=0; }
+  pl.animT+=dt*(6+game.speed);
+
+  // Прокрутка мира
+  const dx=game.speed*dt*60;
+  game.worldX+=dx;
+
+  // Спавн
+  runSpawns(dt);
+
+  // Движение и логика сущностей
+  for(const e of game.ents){
+    e.x-=dx + (e.extraVX?e.extraVX*dt*60:0);
+    if(e.kind==='enemy'){ e.animT+=dt*8; e.bob=Math.sin(game.time*4+e.x*0.03)*4; }
+    if(e.kind==='bean'||e.kind==='diamond'){ e.bobT+=dt*4; }
+  }
+  // Столкновения
+  const phb={ x:pl.x+8, y:pl.y+8, w:24, h:34 };
+  for(const e of game.ents){
+    if(e.dead) continue;
+    const hb=hitbox(e); const ehb= e.kind==='enemy' ? {x:hb.x, y:hb.y+e.bob, w:hb.w, h:hb.h} : hb;
+    if(aabb(phb,ehb)){
+      if(e.hazard) damage(e.dmg);
+      else collect(e);
+    }
+  }
+  game.ents=game.ents.filter(e=>!e.dead && e.x+e.w>-4);
+
+  updateParts(dt);
+  floatScores.forEach(f=>{ f.y-=0.5; f.life-=dt; }); floatScores=floatScores.filter(f=>f.life>0);
+
+  // Обновление HUD
+  els.score.textContent=displayScore();
+  els.dia.textContent=game.diamonds;
+  els.time.textContent=fmtTime(game.time);
+  els.phase.textContent=phaseName(p);
+
+  // Триггер финала
+  if(game.time>=CONFIG.durationSec){ startFinale(); }
+
+  // Тост-таймер
+  if(toastTimer>0){ toastTimer-=dt; if(toastTimer<=0) els.toast.classList.remove('show'); }
+}
+function displayScore(){ return (game.scoreCollect + Math.floor(game.distance*CONFIG.distScoreMul))|0; }
+
+function drawRun(){
+  const p=progress();
+  drawBackground(p, game.worldX);
+  drawGround(p, game.worldX);
+  // Сущности
+  for(const e of game.ents){
+    if(e.kind==='enemy'){ const fr=e.frames[(e.animT|0)%2]; ctx.drawImage(fr, e.x|0, (e.y+e.bob)|0); }
+    else if(e.kind==='bean'||e.kind==='diamond'){ const dy=Math.sin(e.bobT)*3; ctx.drawImage(e.spr, e.x|0, (e.baseY+dy)|0);
+      if(e.kind==='diamond'){ // искорка
+        ctx.fillStyle='rgba(255,255,255,'+(0.4+0.4*Math.sin(e.bobT*3))+')'; ctx.fillRect((e.x+3)|0,(e.baseY+dy+2)|0,1,1); }
+    }
+    else ctx.drawImage(e.spr, e.x|0, e.y|0);
+  }
+  drawPlayer(game.player, 0);
+  drawParts(0);
+  // Всплывающие очки
+  ctx.font='8px "Courier New", monospace'; ctx.textAlign='center';
+  for(const f of floatScores){ ctx.fillStyle=`rgba(255,224,122,${Math.min(1,f.life)})`; ctx.fillText(f.txt, f.x, f.y); }
+  ctx.textAlign='left';
+  // Вспышка урона
+  if(game.screenFlash>0){ ctx.fillStyle=`rgba(255,60,90,${game.screenFlash*0.9})`; ctx.fillRect(0,0,VW,VH); }
+}
+function drawPlayer(pl, camY){
+  // Мигание при неуязвимости
+  if(game.invuln>0 && (Math.floor(performance.now()/70)%2===0)) return;
+  let spr;
+  if(!pl.onGround) spr=dinoJump;
+  else spr=dinoRun[Math.floor(pl.animT)%2];
+  ctx.drawImage(spr, pl.x|0, (pl.y-camY)|0);
+}
+
+/* ------------------------------------------------------------------
+   9) ФИНАЛ — БАШНЯ И ПОДЪЁМ К ПРИНЦЕССЕ
+   Игрок прыжками (одна кнопка) перескакивает по уступам зигзагом
+   к вершине, где ждёт принцесса-Дино. Вокруг патрулируют драконы.
+   ------------------------------------------------------------------ */
+function startFinale(){
+  state=STATE.FINALE;
+  showToast('БАШНЯ!', 2.2);
+  SFX.win && null;
+  // Строим уступы: снизу вверх зигзагом вокруг центральной колонны
+  const ledges=[];
+  const baseY=430;                       // мировая Y низа (потом камера следит)
+  const cx=VW*0.5;
+  for(let i=0;i<CONFIG.towerLedges;i++){
+    const side = i%2===0 ? -1 : 1;
+    const lx = cx + side*CONFIG.ledgeShift - 26 + (i===0?0:0);
+    const ly = baseY - i*CONFIG.ledgeRise;
+    ledges.push({ x:lx, y:ly, w:52 });
+  }
+  // Верхний уступ — площадка принцессы (шире, по центру)
+  const topY = baseY - CONFIG.towerLedges*CONFIG.ledgeRise;
+  ledges.push({ x:cx-34, y:topY, w:68, top:true });
+
+  const pl=game.player;
+  pl.x = ledges[0].x + ledges[0].w/2 - 20;
+  pl.y = ledges[0].y - 46;
+  pl.vy=0; pl.vx=0; pl.onLedge=0; pl.airborne=false; pl.onGround=true; pl.animT=0;
+
+  // Патрулирующие драконы (опасность)
+  const dragons=[];
+  for(let i=0;i<5;i++){
+    dragons.push({ frames:dragonSpr, animT:Math.random(),
+      cx: cx + (Math.random()<0.5?-1:1)*(70+Math.random()*70),
+      y: baseY - 40 - i*70 - Math.random()*30,
+      phase:Math.random()*6, amp:30+Math.random()*30, spd:0.6+Math.random()*0.6, w:dragonSpr[0].width, h:dragonSpr[0].height });
+  }
+  game.finale={ ledges, baseY, cx, dragons, camY:0, done:false, msgTimer:2.2 };
+}
+
+function finaleTryHop(){
+  const f=game.finale, pl=game.player;
+  if(pl.airborne) return;                 // прыгаем только стоя
+  const cur=f.ledges[pl.onLedge], nxt=f.ledges[pl.onLedge+1];
+  if(!nxt){ return; }
+  // Считаем горизонтальную скорость так, чтобы дуга прыжка приземлилась
+  // ровно на следующий уступ (баллистика при фиксированном hopV).
+  const g=CONFIG.gravity, vy=CONFIG.hopV;
+  const dy = nxt.y - cur.y;               // отрицательное (следующий уступ выше)
+  const t = (-vy + Math.sqrt(Math.max(1, vy*vy + 2*g*dy))) / g; // кадров до приземления
+  let vx = ((nxt.x+nxt.w/2) - (pl.x+20)) / t;
+  vx = Math.max(-6, Math.min(6, vx));     // разумный предел
+  pl.vy=vy; pl.vx=vx; pl.airborne=true; pl.onGround=false;
+  SFX.jump(); spawnPartsW(pl.x+20, pl.y+46, '#ffffff', 6);
+}
+function spawnPartsW(x,y,c,n){ for(let i=0;i<n;i++) game.parts.push({x,y,vx:(Math.random()-0.5)*2.4,vy:-Math.random()*2-0.5,life:0.5+Math.random()*0.3,color:c,size:1+((Math.random()*2)|0)}); }
+
+function updateFinale(dt){
+  const f=game.finale, pl=game.player;
+  game.time+=dt;
+  if(game.invuln>0) game.invuln-=dt;
+  if(game.screenFlash>0) game.screenFlash-=dt;
+  if(f.msgTimer>0) f.msgTimer-=dt;
+
+  // Драконы патрулируют
+  for(const d of f.dragons){ d.animT+=dt*8; d.phase+=dt*d.spd; d.x=d.cx+Math.sin(d.phase)*d.amp; }
+
+  // Физика прыжка по уступам
+  if(pl.airborne){
+    pl.vy+=CONFIG.gravity; pl.y+=pl.vy; pl.x+=pl.vx*dt*60;
+    const nxt=f.ledges[pl.onLedge+1];
+    const feet=pl.y+46, cx=pl.x+20;
+    // Приземление на следующий уступ
+    if(nxt && pl.vy>=0 && feet>=nxt.y && feet<=nxt.y+18 && cx>nxt.x-6 && cx<nxt.x+nxt.w+6){
+      pl.y=nxt.y-46; pl.vy=0; pl.vx=0; pl.airborne=false; pl.onGround=true; pl.onLedge++;
+      spawnPartsW(pl.x+20, pl.y+46, '#cfeae6', 8); SFX.step();
+      if(f.ledges[pl.onLedge].top){ finaleWin(); return; }
+    }
+    // Промах: упал ниже текущего уступа — возвращаемся на него
+    const cur=f.ledges[pl.onLedge];
+    if(feet>cur.y+60){
+      pl.x=cur.x+cur.w/2-20; pl.y=cur.y-46; pl.vy=0; pl.vx=0; pl.airborne=false; pl.onGround=true;
+    }
+    pl.animT+=dt*10;
+  }
+
+  // Камера следит по вертикали
+  const targetCamY = pl.y - VH*0.55;
+  f.camY += (targetCamY - f.camY)*Math.min(1, dt*6);
+
+  // Столкновения с драконами
+  const phb={ x:pl.x+8, y:pl.y+8, w:24, h:34 };
+  for(const d of f.dragons){
+    const dhb={ x:d.x+d.w*0.28, y:d.y+d.h*0.28, w:d.w*0.44, h:d.h*0.44 };
+    if(aabb(phb,dhb)) damage(CONFIG.dmgEnemy);
+  }
+
+  updateParts(dt);
+  els.score.textContent=displayScore();
+  els.dia.textContent=game.diamonds;
+  els.time.textContent=fmtTime(game.time);
+  els.phase.textContent='ФИНАЛ';
+  if(toastTimer>0){ toastTimer-=dt; if(toastTimer<=0) els.toast.classList.remove('show'); }
+}
+
+function drawTower(f){
+  const camY=f.camY, cx=f.cx;
+  const p=1;                              // сумеречный фон на финале
+  drawBackground(1, game.worldX);        // тёмное небо
+  // Земля у основания башни
+  const groundScreenY = f.baseY - camY + 20;
+  ctx.fillStyle='#2e2740'; ctx.fillRect(0, groundScreenY, VW, VH);
+  ctx.fillStyle='#3a3560'; ctx.fillRect(0, groundScreenY, VW, 4);
+
+  // Колонна башни (кирпичи)
+  const towTop = (f.ledges[f.ledges.length-1].y) - camY - 30;
+  const towBot = groundScreenY;
+  const tw=64, tx=cx-tw/2;
+  ctx.fillStyle='#6b6480'; ctx.fillRect(tx, towTop, tw, towBot-towTop);
+  ctx.fillStyle='#585272';
+  for(let y=towTop; y<towBot; y+=10){
+    const off=((Math.floor((y-towTop)/10))%2)*11;
+    for(let x=tx-off; x<tx+tw; x+=22){ ctx.fillRect(x+1, y+1, 20, 8); }
+  }
+  // Окна
+  ctx.fillStyle='#241f3a';
+  for(let y=towTop+30; y<towBot-30; y+=64){ ctx.fillRect(cx-6, y, 12, 18); ctx.fillStyle='#f2c94c'; ctx.fillRect(cx-4,y+2,3,4); ctx.fillStyle='#241f3a'; }
+  // Дверь у основания
+  ctx.fillStyle='#241f3a'; ctx.fillRect(cx-9, towBot-24, 18, 24);
+  // Зубцы наверху
+  ctx.fillStyle='#6b6480';
+  for(let x=tx-4; x<tx+tw; x+=14){ ctx.fillRect(x, towTop-8, 8, 8); }
+  // Флаг
+  ctx.fillStyle='#f28ba3'; ctx.fillRect(cx-1, towTop-26, 2, 18);
+  ctx.beginPath(); ctx.moveTo(cx+1,towTop-26); ctx.lineTo(cx+16,towTop-22); ctx.lineTo(cx+1,towTop-18); ctx.fill();
+
+  // Уступы
+  for(const l of f.ledges){
+    const sy=l.y-camY;
+    ctx.fillStyle='#7a738f'; ctx.fillRect(l.x, sy, l.w, 8);
+    ctx.fillStyle='#5a5473'; ctx.fillRect(l.x, sy+6, l.w, 3);
+    ctx.fillStyle='#8f88a6'; ctx.fillRect(l.x, sy, l.w, 2);
+  }
+  // Принцесса на вершине
+  const top=f.ledges[f.ledges.length-1];
+  ctx.drawImage(princessSpr, (top.x+top.w/2-20)|0, (top.y-54 - camY)|0);
+  // Сердечки-подсказка над принцессой
+  ctx.fillStyle='#ff8aa3';
+  const hb=(Math.sin(game.time*4)*2)|0;
+  ctx.fillRect((top.x+top.w/2)-1, top.y-64-camY+hb, 2,2);
+
+  // Драконы
+  for(const d of f.dragons){ const fr=d.frames[(d.animT|0)%2]; ctx.drawImage(fr, d.x|0, (d.y-camY)|0); }
+
+  // Игрок
+  drawPlayer(game.player, camY);
+  drawParts(camY);
+
+  if(game.screenFlash>0){ ctx.fillStyle=`rgba(255,60,90,${game.screenFlash*0.9})`; ctx.fillRect(0,0,VW,VH); }
+}
+
+function finaleWin(){ if(game.ended) return; endGame(true); }
+
+/* ------------------------------------------------------------------
+   ПОБЕДНАЯ СЦЕНА (Дино + принцесса на вершине) — рисуется на канвасе
+   позади полупрозрачного экрана победы.
+   ------------------------------------------------------------------ */
+let winScene=null;
+function buildWinScene(){
+  winScene={ t:0, fw:[] };
+  // фейерверк-частицы
+}
+function drawWinScene(dt){
+  winScene.t+=dt;
+  // тёмное небо + звёзды
+  drawBackground(1, game.worldX+ winScene.t*20);
+  // площадка башни по центру
+  const gy=190;
+  ctx.fillStyle='#6b6480'; ctx.fillRect(VW/2-60, gy, 120, VH-gy);
+  ctx.fillStyle='#585272';
+  for(let y=gy; y<VH; y+=10) for(let x=VW/2-60;x<VW/2+60;x+=22) ctx.fillRect(x+1,y+1,20,8);
+  ctx.fillStyle='#7a738f'; ctx.fillRect(VW/2-70, gy-8, 140, 10);
+  // Дино и принцесса рядом
+  ctx.drawImage(dinoRun[0], VW/2-46, gy-56);
+  ctx.drawImage(princessSpr, VW/2+8, gy-62);
+  // маленькие сердечки между ними
+  const bob=(Math.sin(winScene.t*3)*3)|0;
+  ctx.drawImage(heartFull, VW/2-6, gy-84+bob);
+  // Фейерверки
+  if(Math.random()<0.06){ const fx=40+Math.random()*(VW-80), fy=30+Math.random()*80; const col=['#ffd24d','#ff8aa3','#7fd6cd','#fff'][(Math.random()*4)|0]; for(let i=0;i<14;i++){ const a=i/14*Math.PI*2; game.parts.push({x:fx,y:fy,vx:Math.cos(a)*2,vy:Math.sin(a)*2,life:0.8,color:col,size:2}); } }
+  updateParts(dt); drawParts(0);
+}
+
+/* ------------------------------------------------------------------
+   КОНЕЦ ИГРЫ / ПЕРЕХОДЫ ЭКРАНОВ
+   ------------------------------------------------------------------ */
+function endGame(win){
+  if(game.ended) return; game.ended=true;
+  const entry={ score:displayScore(), diamonds:game.diamonds, time:Math.floor(game.time), date:Date.now() };
+  const idx=addHS(entry);
+  if(win){
+    state=STATE.WIN; SFX.win(); buildWinScene();
+    document.getElementById('winScore').textContent=entry.score;
+    document.getElementById('winDia').textContent=entry.diamonds;
+    document.getElementById('winTime').textContent=fmtTime(entry.time);
+    renderHS(document.getElementById('hsWin'), idx);
+    els.winScreen.classList.remove('hidden');
+  } else {
+    state=STATE.LOSE; SFX.lose();
+    document.getElementById('loseScore').textContent=entry.score;
+    document.getElementById('loseDia').textContent=entry.diamonds;
+    document.getElementById('loseTime').textContent=fmtTime(entry.time);
+    renderHS(document.getElementById('hsLose'), idx);
+    els.loseScreen.classList.remove('hidden');
+  }
+  els.hud.classList.add('hidden');
+  els.toast.classList.remove('show');
+}
+
+function startPlay(){
+  ensureAudio();
+  game=newGame();
+  state=STATE.RUN;
+  floatScores=[];
+  els.startScreen.classList.add('hidden');
+  els.winScreen.classList.add('hidden');
+  els.loseScreen.classList.add('hidden');
+  els.hud.classList.remove('hidden');
+  drawHearts(game.hp);
+  els.score.textContent='0'; els.dia.textContent='0'; els.time.textContent='0:00'; els.phase.textContent='ЛЁГКО';
+}
+
+/* ------------------------------------------------------------------
+   ГЛАВНЫЙ ЦИКЛ — фиксированный шаг физики 1/60 c
+   ------------------------------------------------------------------ */
+const STEP=1/60; let acc=0, last=performance.now();
+function frame(now){
+  let dt=(now-last)/1000; last=now; if(dt>0.25) dt=0.25; // защита от «прыжка» при переключении вкладок
+  acc+=dt;
+  while(acc>=STEP){
+    if(state===STATE.RUN) updateRun(STEP);
+    else if(state===STATE.FINALE) updateFinale(STEP);
+    acc-=STEP;
+  }
+  // Рендер
+  ctx.clearRect(0,0,VW,VH);
+  if(state===STATE.MENU){ drawBackground(0, now*0.02); drawGround(0, now*0.02);
+    // на старте по земле бежит Дино (декоративно)
+    const px=(now*0.06)%(VW+60)-30; ctx.drawImage(dinoRun[Math.floor(now/140)%2], px, GROUND_Y-48);
+  }
+  else if(state===STATE.RUN) drawRun();
+  else if(state===STATE.FINALE) drawTower(game.finale);
+  else if(state===STATE.WIN){ if(winScene) drawWinScene(dt); }
+  else if(state===STATE.LOSE){ drawRun(); ctx.fillStyle='rgba(12,14,34,.35)'; ctx.fillRect(0,0,VW,VH); }
+
+  requestAnimationFrame(frame);
+}
+
+/* ------------------------------------------------------------------
+   ВВОД — прыжок: Пробел/↑/W/клик/тап. На меню — старт/рестарт.
+   ------------------------------------------------------------------ */
+function actionJump(){
+  ensureAudio();
+  if(state===STATE.RUN) tryJump();
+  else if(state===STATE.FINALE) finaleTryHop();
+}
+window.addEventListener('keydown', e=>{
+  if(e.code==='Space'||e.code==='ArrowUp'||e.code==='KeyW'){
+    e.preventDefault();
+    if(state===STATE.RUN||state===STATE.FINALE) actionJump();
+    else if(state===STATE.MENU) startPlay();
+    else if(state===STATE.WIN||state===STATE.LOSE) startPlay();
+  }
+});
+// Клик/тап по канвасу
+canvas.addEventListener('mousedown', e=>{ e.preventDefault(); if(state===STATE.RUN||state===STATE.FINALE) actionJump(); });
+canvas.addEventListener('touchstart', e=>{ e.preventDefault(); ensureAudio(); if(state===STATE.RUN||state===STATE.FINALE) actionJump(); }, {passive:false});
+
+// Кнопки
+document.getElementById('playBtn').addEventListener('click', startPlay);
+document.getElementById('winAgainBtn').addEventListener('click', startPlay);
+document.getElementById('loseAgainBtn').addEventListener('click', startPlay);
+
+// Кнопка звука
+const muteBtn=document.getElementById('muteBtn');
+muteBtn.addEventListener('click', ()=>{ muted=!muted; muteBtn.textContent = muted?'♪ ЗВУК: ВЫКЛ':'♪ ЗВУК: ВКЛ'; ensureAudio(); });
+
+// Инициализация экранов
+renderHS(document.getElementById('hsStart'), -1);
+drawHearts(CONFIG.maxHealth);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
