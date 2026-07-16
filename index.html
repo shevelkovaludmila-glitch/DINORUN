@@ -228,8 +228,10 @@
     <div class="title"><span class="b">DINO</span> <span class="p">RUN</span></div>
     <div class="subtitle">Пробеги к башне и спаси принцессу-Дино</div>
     <div class="controls how">
-      <b>Один тап</b> — прыжок.<br>
+      Управление — <b>в нижней части экрана</b>:<br>
+      <b>Один тап внизу</b> — прыжок.<br>
       <b>Двойной тап</b> — двойной прыжок.<br>
+      Верх экрана свободен для обзора — палец не закрывает препятствия.<br>
       Перепрыгивай врагов, собирай бобы и алмазы,<br>
       доберись до башни и спаси принцессу!
     </div>
@@ -305,9 +307,13 @@ const CONFIG = {
   speedStart:    2.55,     // стартовая скорость прокрутки мира
   speedMax:      7.1,      // скорость на пике сложности
   gravity:       0.78,     // сила тяжести
-  jumpV:        -12.4,     // импульс первого прыжка
+  jumpV:        -12.4,     // импульс первого прыжка (высота прыжка). Меньше по модулю => ниже прыжок
   doubleJump:    true,     // разрешить второй прыжок в воздухе
   doubleJumpV:  -10.6,     // импульс второго прыжка
+
+  // Мобильная раскладка: доля высоты кадра под НИЖНЮЮ зону управления (тап = прыжок).
+  // Верхняя часть — обзор игрового поля, на тапы не реагирует. 0.25 = нижняя четверть.
+  controlZoneFrac: 0.25,
 
   maxHealth:     5,        // сердечек
   dmgEnemy:      1,        // урон от врага
@@ -353,11 +359,11 @@ world.width = VW; world.height = VH;
 const ctx = world.getContext('2d');                // ВСЯ игровая отрисовка идёт сюда
 ctx.imageSmoothingEnabled = false;
 
-/* Настройка «приближения» (крутилки под мобильный экран):
-   zoomH  — сколько world-пикселей по высоте видно; меньше => крупнее спрайты.
-            235 => Дино занимает ≈ 1/5 высоты экрана.
-   playerAnchor — где по горизонтали держать Дино в забеге (доля от левого края). */
-const VIEW = { zoomH: 235, playerAnchor: 0.20 };
+/* Настройка вида (крутилки под мобильный экран):
+   playerAnchor — где по горизонтали держать Дино в забеге (доля от левого края).
+   groundBelow  — сколько world-пикселей земли показывать ниже линии земли в игровой зоне
+                  (чтобы стык с нижней зоной управления был на земле, без шва). */
+const VIEW = { playerAnchor: 0.16, groundBelow: 8 };
 
 // Подгоняем внутреннее разрешение видимого канваса под его реальный размер (для чётких пикселей)
 function resizeView(){
@@ -369,22 +375,54 @@ function resizeView(){
 }
 window.addEventListener('resize', resizeView);
 
-/* Прямоугольник буфера, который растягиваем на весь канвас.
-   Соотношение кропа = соотношению канваса => заполняем фрейм целиком без искажений. */
-function computeCrop(){
-  const dispW=canvas.width, dispH=canvas.height;
+/* Кроп буфера, который растягиваем на ИГРОВУЮ зону (верхнюю часть кадра, viewH).
+   Показываем всё небо от верха буфера до линии земли (+чуть-чуть земли), поэтому
+   прыжки и двойные прыжки помещаются по высоте и Дино не улетает за верх экрана.
+   Ширина берётся из соотношения игровой зоны, чтобы заполнить её без искажений. */
+function computeCrop(viewH){
+  const dispW=canvas.width, dispH=viewH||canvas.height;
   const aspect = dispW/dispH;
-  let sh = VIEW.zoomH;
+  let sh = GROUND_Y + VIEW.groundBelow;   // всё небо (0..линия земли) + немного земли снизу
+  let sy = 0;
   let sw = sh*aspect;
-  if(sw>VW){ sw=VW; sh=sw/aspect; }   // на очень широком экране не выходим за пределы мира
-  if(sh>VH){ sh=VH; sw=sh*aspect; }
-  let sy = GROUND_Y + 26 - sh;        // по вертикали привязка к земле (немного земли снизу видно)
+  if(sw>VW){ sw=VW; sh=sw/aspect; sy=(GROUND_Y+VIEW.groundBelow)-sh; } // очень широкий экран (десктоп)
+  if(sh>VH){ sh=VH; }
+  sy = Math.max(0, Math.min(VH-sh, sy));
   let sx;
   if(state===STATE.RUN && game) sx = game.player.x - VIEW.playerAnchor*sw; // в забеге держим Дино слева
-  else sx = VW/2 - sw/2;                                                   // иначе — по центру (финал/меню/победа)
+  else sx = VW/2 - sw/2;                                                   // иначе — по центру
   sx = Math.max(0, Math.min(VW-sw, sx));
-  sy = Math.max(0, Math.min(VH-sh, sy));
   return {sx,sy,sw,sh};
+}
+
+/* Нижняя зона управления: оформлена под землю (продолжает грунт из буфера) — палец
+   тапает здесь, а верх остаётся свободным для обзора. Рисуется поверх канваса. */
+function drawControlZone(topY){
+  const W=canvas.width, H=canvas.height;
+  const p = (typeof progress==='function' && game) ? progress() : 0;
+  const gTop = p<0.5?'#caa15e':(p<0.8?'#8a6a4a':'#4a3f5a');   // тот же цвет, что грунт в буфере
+  const gBot = p<0.5?'#8a6a3a':(p<0.8?'#5e4a34':'#2e2740');
+  view.fillStyle=gTop; view.fillRect(0, topY, W, H-topY);
+  // лёгкая крапинка-текстура, чтобы читалось как земля
+  view.fillStyle=gBot;
+  const S=Math.max(10, Math.round(W/22));
+  for(let y=topY+S; y<H; y+=S){
+    for(let x=(y%2?S/2:0); x<W; x+=S){ view.fillRect(x|0, y|0, Math.max(3,(S*0.3)|0), Math.max(2,(S*0.18)|0)); }
+  }
+}
+
+// Ненавязчивая полупрозрачная подсказка в зоне управления: «Тапай здесь для прыжка»
+function drawTapHint(topY){
+  const W=canvas.width, H=canvas.height, zh=H-topY;
+  view.save();
+  const fs=Math.max(11, Math.min(Math.round(zh*0.30), Math.round(W*0.045)));
+  view.font='bold '+fs+'px "Courier New", monospace';
+  view.textAlign='center'; view.textBaseline='middle';
+  const cy=topY+zh*0.5;
+  // мягкая тень + полупрозрачный текст
+  view.globalAlpha=0.30; view.fillStyle='#000'; view.fillText('ТАПАЙ ЗДЕСЬ ДЛЯ ПРЫЖКА', W/2+1, cy+1);
+  view.globalAlpha=0.62; view.fillStyle='#fff7ea'; view.fillText('ТАПАЙ ЗДЕСЬ ДЛЯ ПРЫЖКА', W/2, cy);
+  view.restore();
 }
 
 /* ------------------------------------------------------------------
@@ -1212,12 +1250,23 @@ function frame(now){
   else if(state===STATE.WIN){ if(winScene) drawWinScene(dt); }
   else if(state===STATE.LOSE){ drawRun(); ctx.fillStyle='rgba(12,14,34,.35)'; ctx.fillRect(0,0,VW,VH); }
 
-  // «Приближение»: выводим кроп буфера на весь видимый канвас (без чёрных полос)
+  // Вывод на видимый канвас (без чёрных полос)
   resizeView();
-  const cr=computeCrop();
   view.imageSmoothingEnabled=false;
   view.clearRect(0,0,canvas.width,canvas.height);
-  view.drawImage(world, cr.sx|0, cr.sy|0, cr.sw, cr.sh, 0,0, canvas.width, canvas.height);
+  if(state===STATE.RUN){
+    // Игровое поле — в ВЕРХНЕЙ части кадра; нижняя полоса — зона управления (земля),
+    // тап засчитывается только там, поэтому палец не закрывает препятствия сверху.
+    const topH = Math.round(canvas.height*(1-CONFIG.controlZoneFrac));
+    const cr = computeCrop(topH);
+    view.drawImage(world, cr.sx|0, cr.sy|0, cr.sw, cr.sh, 0,0, canvas.width, topH);
+    drawControlZone(topH);
+    drawTapHint(topH);
+  } else {
+    // Меню / финал / победа / поражение — мир на весь кадр
+    const cr = computeCrop(canvas.height);
+    view.drawImage(world, cr.sx|0, cr.sy|0, cr.sw, cr.sh, 0,0, canvas.width, canvas.height);
+  }
 
   requestAnimationFrame(frame);
 }
@@ -1233,10 +1282,18 @@ function actionJump(){
   if(state===STATE.RUN) tryJump();          // tryJump сам делает двойной прыжок при повторном тапе в воздухе
   else if(state===STATE.FINALE) finaleTryHop();
 }
-// pointerdown покрывает и тач, и мышь (для теста на десктопе) единообразно
+// pointerdown покрывает и тач, и мышь (для теста на десктопе) единообразно.
+// В забеге прыжок засчитывается ТОЛЬКО в нижней зоне управления (палец не закрывает
+// обзор сверху); в финале — тап в любом месте (весь экран это подъём по башне).
 canvas.addEventListener('pointerdown', e=>{
   e.preventDefault();
-  if(state===STATE.RUN||state===STATE.FINALE) actionJump();
+  if(state===STATE.RUN){
+    const r=canvas.getBoundingClientRect();
+    const y=e.clientY-r.top;
+    if(y >= r.height*(1-CONFIG.controlZoneFrac)) actionJump();   // только нижняя зона
+  } else if(state===STATE.FINALE){
+    actionJump();
+  }
 }, {passive:false});
 
 // Кнопки
